@@ -1,78 +1,79 @@
-// Local save: snapshot the world to localStorage and read it back.
-// Every method is safe outside a browser (node, tests) — it just returns
-// false / null instead of touching storage that is not there.
+// Local save: a plain snapshot of the run, stored as JSON under one
+// key in localStorage. Safe to call anywhere — every function guards
+// against a missing `window` (headless / node) and returns false/null.
 import { SAVE_KEY } from './config.js';
+import { formatMoney, formatTime } from './util.js';
 
-function storage() {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return null;
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function snapshotOf(state) {
+export function saveSnapshot(state) {
   return {
-    version: 1,
     seed: state.seed,
-    money: state.money,
+    money: Math.round(state.money),
     missionIndex: state.missionIndex,
     missionsDone: state.missionsDone,
     storyComplete: state.storyComplete,
     kills: state.kills,
-    hp: state.player.hp,
+    hp: Math.round(state.player.hp),
     ammo: state.player.ammo,
-    x: state.player.x,
-    y: state.player.y,
-    playTime: state.playTime,
+    x: Math.round(state.player.x),
+    y: Math.round(state.player.y),
+    playTime: Math.round(state.playTime),
   };
 }
 
+export function applySave(state, save) {
+  if (!save) return false;
+  state.seed = save.seed;
+  state.money = save.money;
+  state.missionIndex = save.missionIndex;
+  state.missionsDone = save.missionsDone;
+  state.storyComplete = !!save.storyComplete;
+  state.kills = save.kills || 0;
+  state.player.hp = save.hp;
+  state.player.ammo = save.ammo;
+  state.player.x = save.x;
+  state.player.y = save.y;
+  state.playTime = save.playTime || 0;
+  return true;
+}
+
 export function saveGame(state) {
-  const store = storage();
-  if (!store) return false;
   try {
-    store.setItem(SAVE_KEY, JSON.stringify(snapshotOf(state)));
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(saveSnapshot(state)));
     return true;
-  } catch {
+  } catch (e) {
     return false;
   }
 }
 
 export function loadSave() {
-  const store = storage();
-  if (!store) return null;
   try {
-    const raw = store.getItem(SAVE_KEY);
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    const save = JSON.parse(raw);
-    if (!save || typeof save !== 'object' || typeof save.seed !== 'number') return null;
-    // Version 1 is the only shape written so far; anything else is not ours.
-    if (save.version !== undefined && save.version !== 1) return null;
-    return save;
-  } catch {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    return parsed;
+  } catch (e) {
     return null;
   }
 }
 
 export function clearSave() {
-  const store = storage();
-  if (!store) return false;
   try {
-    store.removeItem(SAVE_KEY);
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    window.localStorage.removeItem(SAVE_KEY);
     return true;
-  } catch {
+  } catch (e) {
     return false;
   }
 }
 
-// "$1,234  •  3 missions done  •  2:05 played" — '' when there is no save.
+// One-line save summary for the title screen: "$1,234  •  3 missions
+// done  •  2:05 played". Empty string when there is no save.
 export function saveInfoText(save) {
   if (!save) return '';
-  const money = `$${Math.round(save.money || 0).toLocaleString('en-US')}`;
-  const missions = `${save.missionsDone || 0} missions done`;
-  const total = Math.max(0, Math.floor(save.playTime || 0));
-  const played = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')} played`;
-  return `${money}  •  ${missions}  •  ${played}`;
+  const missions = save.missionsDone || 0;
+  const word = missions === 1 ? 'mission' : 'missions';
+  return formatMoney(save.money) + '  •  ' + missions + ' ' + word + ' done  •  ' + formatTime(save.playTime || 0) + ' played';
 }

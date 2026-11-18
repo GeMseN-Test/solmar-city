@@ -1,61 +1,54 @@
-// Solmar City's second act: three more story missions that take Mara from
-// the Solmar Score to the top of the city. They use the same objective
-// kinds the first five do (reach, board, defeat, interact, escape), so the
-// mission engine needs no new rules — only the 'board' kind, which the
-// boats module already teaches the player. The world registers them once
-// at boot, after mission five, and the story ends with the finale.
-
+// Story missions M6-M8, appended to MISSIONS by registerMissions2().
+// New landmarks they use (city.js): radio "Solmar Radio" (2520,130)
+// and island "Gull Island" (1440,2130). 'board' is the new objective
+// kind: the player must be sitting in a boat.
 import { MISSIONS } from './missions.js';
 
-export const MISSIONS_V2 = [
+let registered = false;
+
+const EXTRA = [
   {
     id: 'harbor-lights',
     title: 'Harbor Lights',
-    briefing: 'A buyer waits at the Marina — but the package is on Gull Island. Take a boat.',
+    briefing: 'Take a boat out to Gull Island and back. The harbor is yours tonight.',
     reward: 900,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Get to the Solmar Docks' },
-      { kind: 'board', text: 'Board a boat — walk up to one on the water and press E' },
-      { kind: 'reach', key: 'island', text: 'Sail out to Gull Island' },
-      { kind: 'reach', key: 'marina', text: 'Sail back, step ashore (E), and deliver to the Marina' },
+      { kind: 'reach', key: 'docks', text: 'Reach Solmar Docks' },
+      { kind: 'board', text: 'Board a boat' },
+      { kind: 'reach', key: 'island', text: 'Reach Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Reach Solmar Marina' },
     ],
   },
   {
     id: 'on-air',
     title: 'On Air',
-    briefing: 'Solmar Radio wants Mara live on air. The Static Boys want her off it. Three of them.',
+    briefing: 'The Static Boys jammed the radio tower. Get up there and shut them down.',
     reward: 1200,
     objectives: [
-      { kind: 'reach', key: 'radio', text: 'Get to the Solmar Radio tower' },
-      { kind: 'defeat', count: 3, text: 'Take out 3 Static Boys guarding the tower' },
-      { kind: 'reach', key: 'safehouse', text: 'Report back to the Safehouse' },
+      { kind: 'reach', key: 'radio', text: 'Reach Solmar Radio' },
+      { kind: 'defeat', count: 3, text: 'Defeat 3 Static Boys' },
+      { kind: 'reach', key: 'safehouse', text: "Reach Mara's Safehouse" },
     ],
   },
   {
     id: 'grand-finale',
     title: 'The Grand Finale',
-    briefing: 'One last job: the Grand Solmar Bank, six guards, the whole PD — and a clean getaway.',
+    briefing: 'One last bank job, then disappear. Grab the vault, drop the guards, run.',
     reward: 5000,
     objectives: [
-      { kind: 'reach', key: 'bank', text: 'Get to the Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault cash (press E at the bank)' },
-      { kind: 'defeat', count: 6, text: 'Take out 6 bank guards' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to the Safehouse — the whole PD is coming' },
+      { kind: 'reach', key: 'bank', text: 'Reach Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', level: 4, text: 'Grab the vault (4 stars)' },
+      { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
+      { kind: 'escape', key: 'safehouse', text: 'Escape to the Safehouse' },
     ],
   },
 ];
 
-/**
- * Append the second act to the story, once. Safe to call again: missions
- * already registered are skipped by id, so a reload never doubles them.
- */
-export function registerStoryMissions() {
-  for (const mission of MISSIONS_V2) {
-    if (!MISSIONS.some((existing) => existing.id === mission.id)) {
-      MISSIONS.push(mission);
-    }
+// Idempotent: safe to call on every world reset.
+export function registerMissions2() {
+  if (registered) return;
+  registered = true;
+  for (const m of EXTRA) {
+    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
   }
-  return MISSIONS.length;
 }
-
-// v2 retry (18 Nov 2026): act two (M6 Harbor Lights, M7 On Air, M8 The Grand Finale) re-verified — all three complete end-to-end.

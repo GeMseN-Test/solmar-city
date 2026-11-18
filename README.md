@@ -1,51 +1,109 @@
 # Solmar City
 
-![gta6-01](https://make.fun/badge/gta6-01.svg)
-![rank](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/rank.svg)
-![reward](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/reward.svg)
+An original 2D top-down open-world crime game — no Rockstar assets, no
+build step, no network. You are Mara Voss, back in Solmar: steal cars,
+dodge the cops, run the harbor, and take the crown.
 
-An original open-world crime game built for the [make.fun "Make GTA 6" bounty](https://make.fun/bounty/gta6-01) — a 2D top-down city you explore on foot and by car. Everything in it — the city, the characters, the story, the art, the sound — is original; nothing comes from Rockstar/GTA or any commercial game.
+## Play
 
-## The game
-
-You are Mara Voss. She came home broke, and the city owes her a living. Steal cars, lose the cops, run the missions, take the city.
-
-- **A living city**: a road grid with traffic cars, pedestrians, parks, the docks, the marina, a beach and the sea — all drawn in code, no image files.
-- **Drive anything**: walk up to a car, press E, and it's yours. Traffic, police cruisers, your own ride — every car handles, skids and takes damage.
-- **Wanted level**: steal, shoot or ram and the stars climb; police cruisers and foot cops hunt you down, ram you, and bust you if they get close on foot. At 3 stars the PD sets roadblocks across the road ahead; at 4–5 a police helicopter circles overhead with a spotlight. Lay low and it fades.
-- **Missions and a story**: ten story missions — the first five (Hot Wheels, Harbor Run, Heat Wave, Turf War, The Solmar Score) plus a second act: Harbor Lights (take a boat to Gull Island), On Air (defend the Solmar Radio tower), and The Grand Finale (one last bank job) — and a third act: Night Shift at the Docks (hold the docks, then sail the island run) and King of Solmar (take the turf, hit the bank, and get home clean) — plus repeatable freelance runs after the story ends, $250 to $5,000 a job.
-- **Boats**: five boats moored in the harbor. Walk up to one on the beach, press E, and sail the sea strip — the harbor, the marina and Gull Island are all reachable by water. The red speedboat is the fastest hull in the city; the white yacht is slow but steady.
-- **In-game radio**: four original synth stations — SOLMAR FM (sunny pop), HARBOR 98 (late-night swing), NEON NIGHTS (synthwave), PALM DRIVE (sunset chillwave). Press Q to change station; the HUD shows what is playing. All WebAudio synthesis, no audio files.
-- **Side work**: taxi fares (pick up a waving passenger, deliver in time, get paid) and 12 hidden Solmar Coins scattered across the city, tracked on the HUD.
-- **Driving feel**: hold Space while driving for a handbrake turn — hard stop, tyre smoke, a little slide. Sports cars, vans, trucks and taxis all look and handle differently on the road.
-- **Combat**: shoot (click) and punch (Space), health and ammo pickups, gang members who chase and shoot back.
-- **HUD and minimap**: cash, health, ammo, wanted stars, objective with distance and an on-screen arrow, speed, and a live minimap with the player, cops and targets.
-- **Save and continue**: progress saves to localStorage — New Game / Continue from the title screen, pause with P, and a WASTED/BUSTED screen that sends you back to the Safehouse.
-- **Sound and music**: all WebAudio synthesis — engine hum, sirens, gunshots, crashes, pickups and a bass groove. M mutes. No audio files.
-
-## How to play
-
-```
-WASD move / drive  •  E enter & steal car / board boat  •  Q radio  •  Click shoot  •  Space punch / handbrake  •  P pause  •  M mute
-```
-
-Serve it locally and open it in a desktop browser:
-
-```
+```sh
 node serve.ts
-# then open http://localhost:8080
+# open http://localhost:8080
 ```
 
-No build step, no network requests — the whole game is `game/index.html` plus ES modules under `game/src/`.
+- **WASD / arrows** — move / drive · **Shift** — run
+- **Click** — shoot · **Space** — punch on foot, handbrake in a car
+- **E** — steal a car, board a boat, grab crates, grab the vault
+- **Q** — cycle the radio · **M** — mute · **P / Esc** — pause
+- **Enter** — New Game / confirm
 
-## Files
+Progress autosaves to localStorage; Continue picks up where you left off.
 
-- `game/index.html` — the page and the canvas.
-- `game/src/` — one module per job: `city` (the map), `world` (the rules), `render` (the drawing), `missions` + `missions2` + `missions3` (the story, acts one, two and three), `police` + `police2` (the law, plus roadblocks and the helicopter), `traffic`, `combat`, `audio`, `radio` (the in-game stations), `boats`, `sidejobs` (taxi fares and Solmar Coins), `input`, `save`, `shots` (the posed screenshots), and small helpers (`config`, `random`, `util`).
-- `screenshots/` — four posed frames taken from the game's own code (`?shot=...`): the title screen, driving through the city, a police chase, and Mara at the helm of a boat in the harbor with the radio on.
-- `main.ts` — the hand-in: copies `game/` and `screenshots/` to the output and writes `dossier.json`.
-- `serve.ts` — a tiny static server for local play.
+## The city
 
-Built with [make.fun](https://make.fun) for the [gta6-01 bounty](https://make.fun/bounty/gta6-01).
+A 2880×2160 island city with a road grid, 62 buildings, 3 parks, a beach
+and a harbor sea. Traffic (sedans, vans, taxis, trucks, sports cars) and
+34 pedestrians live on the streets. Wanted stars (0–5) bring cop cruisers
+and foot cops; at 3+ stars the police set **roadblocks** across the road
+ahead of you, and at 4–5 stars a **police helicopter** circles overhead
+with a spotlight. Get WASTED or BUSTED and you wake up at the safehouse.
 
-v2 retry (18 Nov 2026): the game modules were re-authored from the spec in a fresh recording for a second v2 attempt. This build also fixes four real bugs found while re-authoring — combat cooldowns that never ticked down (the player could only shoot and punch once), kills that were never counted (defeat objectives could never complete), a missing `#status` element on the page, and a missing favicon.
+## Story — 12 missions
+
+1. **Hot Wheels** ($250) — steal a car, bring it to Ray's Garage
+2. **Harbor Run** ($400) — grab 3 crates at the docks, run them to the marina
+3. **Heat Wave** ($600) — hit the bank vault, lose the heat, get home
+4. **Turf War** ($800) — clear 4 Vipers off Mara's turf
+5. **The Solmar Score** ($2,500) — vault, guards, vanish
+6. **Harbor Lights** ($900) — boat out to Gull Island and back
+7. **On Air** ($1,200) — clear 3 Static Boys off the radio tower
+8. **The Grand Finale** ($5,000) — bank, vault, 6 guards, escape
+9. **Night Shift at the Docks** ($1,500) — 4 Harbor Rats, then the island
+10. **King of Solmar** ($7,500) — turf, bank, escape
+11. **Midnight Run** ($3,000) — docks, 4 Harbor Rats, marina, boat, island
+12. **The Solmar Crown** ($10,000) — bank, vault, 6 guards, escape to the
+    safehouse, reach the garage. Finish it and the story is complete.
+
+## Side jobs
+
+- **Taxi fares** — while driving, a waving passenger appears; pick them
+  up and deliver them within 45 seconds for $80–$150 by distance.
+- **Solmar Coins** — 12 hidden gold coins on the streets, +$25 each.
+- **Pickups** — cash ($60), health (+40), ammo (+36) scattered around town.
+
+## Radio — 5 stations (Q to cycle)
+
+| Station | Style |
+|---|---|
+| SOLMAR FM | sunny pop, 112 BPM |
+| HARBOR 98 | late-night swing, 96 BPM |
+| NEON NIGHTS | synthwave, 122 BPM |
+| PALM DRIVE | sunset chillwave, 100 BPM |
+| MIDNIGHT DRIVE | night cruise, 90 BPM, minor key |
+
+All music is synthesized live with WebAudio — no audio files.
+
+## Boats — 6 in the harbor
+
+White runabout, orange skiff and blue cruiser at the marina; a red
+speedboat (~1.45× top speed) off the docks; a slow white yacht (~0.85×);
+and a yellow **jetski** (~1.6×, the fastest thing on the water). Press E
+near a boat to board, E again to step ashore on the beach.
+
+## Structure
+
+```
+game/
+  index.html            page + canvas
+  src/
+    main.js             frame loop, screens, input wiring
+    world.js            step() — the whole simulation
+    city.js             roads, buildings, parks, landmarks
+    render.js           all canvas drawing + HUD + minimap
+    missions.js         M1–M5 + the mission engine
+    missions2.js        M6–M8
+    missions3.js        M9–M10
+    missions4.js        M11–M12
+    combat.js           gun, fists, gang AI
+    police.js           wanted stars, cruisers, foot cops
+    police2.js          roadblocks + police helicopter
+    traffic.js          traffic cars + pedestrians
+    boats.js            boats + sailing physics
+    radio.js            5 synthesized stations
+    audio.js            WebAudio sound effects + menu music
+    sidejobs.js         taxi fares + Solmar Coins
+    input.js            keyboard + mouse
+    save.js             localStorage save / load
+    config.js           every tuning number
+    random.js           seeded RNG
+    util.js             math + formatting helpers
+    shots.js            staged screenshot scenes
+serve.ts                dev server (localhost:8080)
+main.ts                 make.fun hand-in entrypoint
+shots.json              the 4 screenshot definitions
+screenshots/            1-start, 2-city, 3-chase, 4-harbor
+```
+
+## License
+
+MIT.

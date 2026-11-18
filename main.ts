@@ -1,19 +1,20 @@
-// Solmar City — make.fun gta6-01 hand-in. 20 game modules under game/src/,
-// 10 story missions, 4 radio stations, 5 boats. The hand-in copies the
-// game and the screenshots, then writes dossier.json for the judges.
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+// Solmar City — make.fun hand-in entrypoint (node main.ts).
+// Copies game/ + screenshots/ into the output dir ($OUTPUT_DIR, or
+// /output when unset) and writes dossier.json from the game dossier
+// builder. The game itself is 20 modules under game/src/ plus this
+// entrypoint; vendor/makefun-game.ts is untouched.
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = dirname(fileURLToPath(import.meta.url));
-const outputDir = process.env.OUTPUT_DIR || '/output';
-mkdirSync(outputDir, { recursive: true });
-for (const dir of ['game', 'screenshots']) {
-  const src = join(repoRoot, dir);
-  if (existsSync(src)) cpSync(src, join(outputDir, dir), { recursive: true });
-}
-const dossier = buildDossier(repoRoot, { text_max_bytes: 163840 });
-writeFileSync(join(outputDir, 'dossier.json'), dossier);
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)));
+const outDir = process.env.OUTPUT_DIR || '/output';
 
-console.log(`Solmar City handed in to ${outputDir}`);
+mkdirSync(outDir, { recursive: true });
+cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
+cpSync(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
+
+const dossier = buildDossier(repoRoot, { text_max_bytes: 163840 });
+writeFileSync(join(outDir, 'dossier.json'), dossier);
+console.log('wrote ' + join(outDir, 'dossier.json') + ' (' + dossier.length + ' bytes)');

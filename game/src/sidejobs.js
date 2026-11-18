@@ -1,40 +1,36 @@
-// Side work, always available: taxi fares and hidden Solmar Coins.
-// Fares: while driving, a waving passenger appears at a roadside point.
-// Drive within range to pick them up, then deliver to a landmark in
-// time. Coins: twelve gold coins on seeded street points, +$25 each.
-import { distanceBetween } from './util.js';
-
-const COIN_COUNT = 12;
-const COIN_VALUE = 25;
-const COIN_RANGE = 22;
-const FARE_PICKUP_RANGE = 60;
-const FARE_DELIVER_RANGE = 60;
-const FARE_TIME_LIMIT = 45;
+// Side activities, always available alongside the story:
+//   - Solmar Coins: 12 hidden gold coins on seeded street points.
+//     Walk or drive over one: +$25 each. HUD shows "Coins n/12".
+//   - Taxi fares: while driving, a waving passenger appears at a
+//     roadside point. Drive within 60px to pick them up, then deliver
+//     them to a random landmark within 45s for $80-$150 by distance.
+import { COIN_COUNT, COIN_VALUE, FARE_MAX_PAY, FARE_MIN_PAY, FARE_PICKUP_RADIUS, FARE_TIME_LIMIT } from './config.js';
+import { clamp, dist } from './util.js';
 
 export function createSideJobs(rng, city) {
   const coins = [];
   for (let i = 0; i < COIN_COUNT; i++) {
-    const p = city.randomStreetPoint(rng);
-    coins.push({ x: p.x, y: p.y, taken: false, bob: rng.range(0, Math.PI * 2) });
+    const spot = city.randomStreetPoint(rng);
+    coins.push({ x: spot.x, y: spot.y, taken: false, bob: rng.range(0, Math.PI * 2) });
   }
   return {
     coins,
     coinsFound: 0,
     fare: null,
     fareTimer: 0,
-    fareCooldown: rng.range(8, 16),
+    fareCooldown: 8,
     faresDone: 0,
     faresEarned: 0,
   };
 }
 
-// "Coins n/12  •  Fares $N" for the HUD.
 export function sideJobsText(state) {
   const sj = state.sideJobs;
-  return `Coins ${sj.coinsFound}/12  •  Fares $${sj.faresEarned}`;
+  return 'Coins ' + sj.coinsFound + '/' + COIN_COUNT + '  •  Fares $' + sj.faresEarned;
 }
 
-// Where the fare passenger (or their destination) is, for the map marker.
+// The fare marker for the HUD arrow / minimap: the waiting passenger,
+// or the destination while a fare is riding. Null when no fare.
 export function fareMarker(state) {
   const fare = state.sideJobs.fare;
   if (!fare) return null;
@@ -42,88 +38,89 @@ export function fareMarker(state) {
   return { x: fare.destX, y: fare.destY, r: 40, kind: 'fare' };
 }
 
-// A street point a short drive from the player, for a fare pickup.
-function nearbyStreetPoint(state) {
-  const city = state.city;
-  const player = state.player;
-  for (let tries = 0; tries < 16; tries++) {
-    const p = city.randomStreetPoint(state.rng);
-    const d = distanceBetween(p.x, p.y, player.x, player.y);
-    if (d > 180 && d < 700) return p;
-  }
-  return city.randomStreetPoint(state.rng);
-}
-
-// A random landmark to deliver to.
-function pickFareDestination(state) {
-  const landmarks = Object.values(state.city.landmarks);
+function spawnFare(state) {
   const rng = state.rng;
-  if (rng) return landmarks[rng.int(0, landmarks.length)];
-  return landmarks[0];
+  const city = state.city;
+  const p = state.player;
+  const keys = Object.keys(city.landmarks);
+  const destKey = rng.pick(keys);
+  const dest = city.landmarks[destKey];
+  // Passenger waits at a roadside point somewhere near the player.
+  let px = p.x;
+  let py = p.y;
+  for (let tries = 0; tries < 12; tries++) {
+    const spot = city.randomStreetPoint(rng);
+    if (dist(spot.x, spot.y, p.x, p.y) > 200 && dist(spot.x, spot.y, p.x, p.y) < 700) {
+      px = spot.x;
+      py = spot.y;
+      break;
+    }
+  }
+  const d = dist(px, py, dest.x, dest.y);
+  const pay = Math.round(clamp(FARE_MIN_PAY + d / 28, FARE_MIN_PAY, FARE_MAX_PAY));
+  state.sideJobs.fare = {
+    stage: 'waiting',
+    x: px, y: py,
+    destKey, destX: dest.x, destY: dest.y, destName: dest.name,
+    pay,
+  };
 }
 
+// Returns an events bitmask (PICKUP = 4 when a coin or fare pays out).
 export function stepSideJobs(state, dt) {
+  let events = 0;
   const sj = state.sideJobs;
-  const player = state.player;
+  const p = state.player;
 
+  // Coins bob and wait to be collected.
   for (const coin of sj.coins) {
-    if (coin.taken) continue;
     coin.bob += dt * 2;
-    if (distanceBetween(player.x, player.y, coin.x, coin.y) < COIN_RANGE) {
+    if (!coin.taken && dist(p.x, p.y, coin.x, coin.y) < 26) {
       coin.taken = true;
       sj.coinsFound += 1;
       state.money += COIN_VALUE;
+      events |= 4;
     }
   }
 
+  // Taxi fares only appear while the player is driving.
   if (!sj.fare) {
-    // Fares only appear while the player is driving.
-    if (player.inCar) {
+    if (p.inCar) {
       sj.fareCooldown -= dt;
-      if (sj.fareCooldown <= 0) {
-        const spot = nearbyStreetPoint(state);
-        const dest = pickFareDestination(state);
-        sj.fare = {
-          stage: 'waiting',
-          x: spot.x,
-          y: spot.y,
-          destKey: dest.key,
-          destX: dest.x,
-          destY: dest.y,
-          destName: dest.name,
-          pay: 0,
-        };
-      }
+      if (sj.fareCooldown <= 0) spawnFare(state);
     }
-    return;
+    return events;
   }
 
   const fare = sj.fare;
   if (fare.stage === 'waiting') {
-    // Pickup is automatic — just drive up to the waving passenger.
-    if (player.inCar && distanceBetween(player.x, player.y, fare.x, fare.y) < FARE_PICKUP_RANGE) {
+    if (p.inCar && dist(p.x, p.y, fare.x, fare.y) < FARE_PICKUP_RADIUS) {
       fare.stage = 'riding';
-      fare.fareTimer = FARE_TIME_LIMIT;
-      const leg = distanceBetween(fare.x, fare.y, fare.destX, fare.destY);
-      fare.pay = 80 + Math.min(70, Math.round(leg / 40));
+      sj.fareTimer = FARE_TIME_LIMIT;
+    } else if (!p.inCar && dist(p.x, p.y, fare.x, fare.y) < FARE_PICKUP_RADIUS) {
+      // On foot the passenger just waits — no pickup without a car.
     }
-    return;
+    return events;
   }
 
-  fare.fareTimer -= dt;
-  if (distanceBetween(player.x, player.y, fare.destX, fare.destY) < FARE_DELIVER_RANGE) {
-    // One rider in ten is feeling generous and tips on top of the fare.
-    const tip = state.rng && state.rng.chance(0.1) ? 25 : 0;
-    state.money += fare.pay + tip;
-    sj.faresDone += 1;
-    sj.faresEarned += fare.pay + tip;
+  // Riding: the clock is running.
+  if (!p.inCar) {
+    // Passenger bails when the ride ends without a car.
     sj.fare = null;
-    sj.fareCooldown = 12 + (state.rng ? state.rng.range(0, 10) : 5);
-    return;
+    sj.fareCooldown = 8;
+    return events;
   }
-  if (fare.fareTimer <= 0) {
-    // Too slow: the passenger gives up and the fare is gone.
+  sj.fareTimer -= dt;
+  if (dist(p.x, p.y, fare.destX, fare.destY) < 55) {
+    state.money += fare.pay;
+    sj.faresDone += 1;
+    sj.faresEarned += fare.pay;
     sj.fare = null;
     sj.fareCooldown = 10;
+    events |= 4;
+  } else if (sj.fareTimer <= 0) {
+    sj.fare = null;
+    sj.fareCooldown = 12;
   }
+  return events;
 }

@@ -1,122 +1,77 @@
-// The heavy end of Solmar City's police response: roadblocks at three
-// stars and up, and a police helicopter with a spotlight at four and five.
-// Both live beside the cruisers and foot cops — roadblock cars are parked
-// police cruisers in the normal police list (so the world already draws
-// them, collides with them and rams them), and the helicopter is a visual
-// hunter that hovers over the player and lights up the street below.
-//
-// The module only manages spawning and cleanup; the chase itself stays
-// in police.js, which skips moving any cruiser flagged as a roadblock.
-
-import { clampNumber, distanceBetween } from './util.js';
-
-const ROADBLOCK_MIN_STARS = 3;
-const HELI_MIN_STARS = 4;
-const ROADBLOCK_COOLDOWN = 20;
+// Deeper police AI, layered on top of police.js:
+//   - roadblocks at 3+ stars: two parked cruisers across the road
+//     ahead of the player (they sit in state.police.cars with
+//     roadblock: true, and stepPolice leaves parked cars alone);
+//   - a police helicopter at 4-5 stars that hovers over the player
+//     with a spotlight circle on the ground. Visual pressure only —
+//     it never shoots.
+import { clamp, dist } from './util.js';
 
 export function createPolice2() {
-  return {
-    roadblocks: [],
-    heli: null,
-    roadblockCooldown: 0,
-  };
+  return { roadblocks: [], heli: null, roadblockCooldown: 0 };
 }
 
-/** Park two cruisers across the road ahead of the player. */
-function spawnRoadblock(state) {
-  const player = state.player;
-  const aheadX = player.x + Math.cos(player.angle) * 420;
-  const aheadY = player.y + Math.sin(player.angle) * 420;
-  const spot = state.city.nearestRoadPoint(aheadX, aheadY);
-  // Across the road, not along it: perpendicular to the player's heading.
-  const across = player.angle + Math.PI / 2;
-  const cars = [];
-  for (const side of [-1, 1]) {
-    const car = {
-      kind: 'police',
-      x: spot.x + Math.cos(across) * 34 * side,
-      y: spot.y + Math.sin(across) * 34 * side,
-      angle: across,
-      speed: 0,
-      color: '#22375e',
-      model: 'police',
-      lightPhase: state.rng.range(0, Math.PI * 2),
-      roadblock: true,
-    };
-    state.police.cars.push(car);
-    cars.push(car);
-  }
-  state.police2.roadblocks = cars;
-  state.police2.roadblockCooldown = ROADBLOCK_COOLDOWN;
-  state.banner = {
-    title: 'ROADBLOCK AHEAD',
-    sub: 'Solmar PD blocked the road — find another way around.',
-    t: 0,
-    duration: 3.5,
-  };
-}
-
-function clearRoadblock(state) {
-  for (const car of state.police2.roadblocks) {
-    const index = state.police.cars.indexOf(car);
-    if (index !== -1) state.police.cars.splice(index, 1);
-  }
-  state.police2.roadblocks = [];
-}
-
-/**
- * One step of the heavy response: keep a roadblock up at 3+ stars, keep
- * the helicopter overhead at 4–5, and clear both when the heat drops.
- */
-export function stepPolice2(state, dt) {
-  const police2 = state.police2;
-  if (!police2) return;
-  police2.roadblockCooldown = Math.max(0, police2.roadblockCooldown - dt);
-
-  if (state.wanted >= ROADBLOCK_MIN_STARS) {
-    if (police2.roadblocks.length === 0 && police2.roadblockCooldown <= 0) {
-      spawnRoadblock(state);
-    }
-  } else if (police2.roadblocks.length > 0) {
-    clearRoadblock(state);
-  }
-
-  if (state.wanted >= HELI_MIN_STARS) {
-    if (!police2.heli) {
-      police2.heli = {
-        x: state.player.x,
-        y: state.player.y - 260,
-        angle: 0,
-        rotor: 0,
-      };
-      state.banner = {
-        title: 'POLICE HELICOPTER',
-        sub: 'Air support is overhead — the spotlight never blinks.',
-        t: 0,
-        duration: 3.5,
-      };
-    }
-    const heli = police2.heli;
-    const dx = state.player.x - heli.x;
-    const dy = state.player.y - 200 - heli.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > 1) {
-      const speed = clampNumber(dist * 1.5, 60, 420);
-      heli.x += (dx / dist) * speed * dt;
-      heli.y += (dy / dist) * speed * dt;
-    }
-    heli.angle = Math.atan2(state.player.y - heli.y, state.player.x - heli.x);
-    heli.rotor += dt * 22;
-  } else if (police2.heli) {
-    police2.heli = null;
-  }
-}
-
-/** The helicopter's spotlight circle on the ground, or null. */
+// Where the spotlight falls, or null when there is no helicopter.
 export function heliSpotlight(state) {
-  const heli = state.police2?.heli;
+  const heli = state.police2.heli;
   if (!heli) return null;
   return { x: state.player.x, y: state.player.y, r: 130 };
 }
 
-// v2 retry (18 Nov 2026): roadblocks at 3+ stars, helicopter at 4–5 stars — re-verified live.
+export function stepPolice2(state, dt) {
+  const p2 = state.police2;
+  const pol = state.police;
+  const p = state.player;
+  if (p2.roadblockCooldown > 0) p2.roadblockCooldown -= dt;
+
+  // --- Roadblocks -------------------------------------------------
+  if (pol.wanted >= 3) {
+    if (p2.roadblocks.length === 0 && p2.roadblockCooldown <= 0) {
+      // Two cruisers parked across the road ahead of the player.
+      const fx = Math.cos(p.angle);
+      const fy = Math.sin(p.angle);
+      const ax = p.x + fx * 230;
+      const ay = p.y + fy * 230;
+      const px = -fy;
+      const py = fx;
+      const blockAngle = p.angle + Math.PI / 2;
+      for (const side of [-42, 42]) {
+        const car = {
+          kind: 'police',
+          x: clamp(ax + px * side, 40, 2840),
+          y: clamp(ay + py * side, 40, 1980),
+          angle: blockAngle,
+          speed: 0,
+          cruise: 0,
+          color: '#1a1a2e',
+          model: 'sedan',
+          ramCooldown: 0,
+          roadblock: true,
+        };
+        pol.cars.push(car);
+        p2.roadblocks.push(car);
+      }
+      p2.roadblockCooldown = 6;
+    }
+  } else if (p2.roadblocks.length > 0) {
+    // Heat dropped: the blockade pulls away.
+    pol.cars = pol.cars.filter((c) => !c.roadblock);
+    p2.roadblocks = [];
+    p2.roadblockCooldown = 4;
+  }
+
+  // --- Helicopter -------------------------------------------------
+  if (pol.wanted >= 4) {
+    if (!p2.heli) {
+      p2.heli = { x: p.x, y: p.y - 160, angle: 0, rotor: 0 };
+    }
+    const heli = p2.heli;
+    heli.rotor += dt * 22;
+    // Ease toward a hover right above the player.
+    heli.x += (p.x - heli.x) * Math.min(1, dt * 1.4);
+    heli.y += (p.y - 40 - heli.y) * Math.min(1, dt * 1.4);
+    heli.angle += dt * 0.4;
+  } else if (p2.heli) {
+    p2.heli = null;
+  }
+}

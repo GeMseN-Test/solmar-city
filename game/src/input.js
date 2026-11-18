@@ -1,121 +1,130 @@
-// Keyboard and mouse for Solmar City. Held keys steer and drive; one-shot
-// presses (interact, punch, pause, confirm, mute) are queued as bit flags
-// and taken once by the loop, so a press between two frames is never lost
-// and never counted twice. The mouse aims (on foot) and clicks to shoot,
-// and clicks menu buttons on the title and pause screens.
+// Keyboard + mouse input. The game polls this once per frame and
+// turns it into the plain VALUES object world.step expects — no
+// functions cross into the world. Action keys (Enter, P, E, Space,
+// M, Q) are edge-triggered: a press fires once, a hold does not repeat.
+// Space is special: on foot it punches (edge), in a car it is the
+// handbrake (held) — the world decides which by context.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-export const ACTION_INTERACT = 4;
-export const ACTION_PUNCH = 8;
-export const ACTION_MUTE = 16;
-export const ACTION_RADIO = 32;
+export const ACTIONS = {
+  CONFIRM: 1,
+  PAUSE: 2,
+  INTERACT: 4,
+  PUNCH: 8,
+  MUTE: 16,
+  RADIO: 32,
+};
 
-const UP = new Set(['ArrowUp', 'KeyW']);
-const DOWN = new Set(['ArrowDown', 'KeyS']);
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const RUN = new Set(['ShiftLeft', 'ShiftRight']);
-const CONFIRM = new Set(['Enter', 'NumpadEnter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-const INTERACT = new Set(['KeyE']);
-const PUNCH = new Set(['Space']);
-const MUTE = new Set(['KeyM']);
-const RADIO = new Set(['KeyQ']);
+const KEY_ACTIONS = {
+  Enter: ACTIONS.CONFIRM,
+  KeyP: ACTIONS.PAUSE,
+  Escape: ACTIONS.PAUSE,
+  KeyE: ACTIONS.INTERACT,
+  Space: ACTIONS.PUNCH,
+  KeyM: ACTIONS.MUTE,
+  KeyQ: ACTIONS.RADIO,
+};
 
 export function createInput(canvas) {
-  const held = new Set();
-  let actions = 0;
-  const mouse = { x: 0, y: 0, down: false, clicked: false, clickX: 0, clickY: 0 };
-
-  function codeOf(event) {
-    return event.code;
-  }
-
-  window.addEventListener('keydown', (event) => {
-    const code = codeOf(event);
-    held.add(code);
-    if (event.repeat) return;
-    if (CONFIRM.has(code)) actions |= ACTION_CONFIRM;
-    else if (PAUSE.has(code)) actions |= ACTION_PAUSE;
-    else if (INTERACT.has(code)) actions |= ACTION_INTERACT;
-    else if (PUNCH.has(code)) actions |= ACTION_PUNCH;
-    else if (MUTE.has(code)) actions |= ACTION_MUTE;
-    else if (RADIO.has(code)) actions |= ACTION_RADIO;
-    if (UP.has(code) || DOWN.has(code) || LEFT.has(code) || RIGHT.has(code) || PUNCH.has(code)) {
-      event.preventDefault();
-    }
-  });
-  window.addEventListener('keyup', (event) => {
-    held.delete(codeOf(event));
-  });
-  // A key released while the tab is hidden never sends keyup: drop all of
-  // them on blur so the player never keeps driving into a wall.
-  window.addEventListener('blur', () => {
-    held.clear();
-    mouse.down = false;
-  });
-
-  function updateMouse(event) {
-    const rect = canvas.getBoundingClientRect();
-    mouse.x = event.clientX - rect.left;
-    mouse.y = event.clientY - rect.top;
-  }
-  canvas.addEventListener('pointermove', updateMouse);
-  canvas.addEventListener('pointerdown', (event) => {
-    updateMouse(event);
-    mouse.down = true;
-    mouse.clicked = true;
-    mouse.clickX = mouse.x;
-    mouse.clickY = mouse.y;
-  });
-  window.addEventListener('pointerup', () => {
-    mouse.down = false;
-  });
-
-  function hasAny(set) {
-    for (const code of set) if (held.has(code)) return true;
-    return false;
-  }
-
-  return {
-    mouse,
-    /** Steering: -1 left, 1 right, from A/D or the arrow keys. */
-    steer() {
-      return (hasAny(RIGHT) ? 1 : 0) - (hasAny(LEFT) ? 1 : 0);
-    },
-    /** Throttle: -1 reverse, 1 forward, from W/S or the arrow keys. */
-    throttle() {
-      return (hasAny(UP) ? 1 : 0) - (hasAny(DOWN) ? 1 : 0);
-    },
-    /** Handbrake: Space held while driving (on foot it still punches). */
-    handbrake() {
-      return hasAny(PUNCH);
-    },
-    /** On-foot move vector, normalised, from WASD / arrows. */
-    moveVector() {
-      const x = (hasAny(RIGHT) ? 1 : 0) - (hasAny(LEFT) ? 1 : 0);
-      const y = (hasAny(DOWN) ? 1 : 0) - (hasAny(UP) ? 1 : 0);
-      const length = Math.hypot(x, y);
-      if (length === 0) return { x: 0, y: 0 };
-      return { x: x / length, y: y / length };
-    },
-    running() {
-      return hasAny(RUN);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-    /** A fresh click (canvas pixels) since the last call, or null. */
-    takeClick() {
-      if (!mouse.clicked) return null;
-      mouse.clicked = false;
-      return { x: mouse.clickX, y: mouse.clickY };
-    },
+  const input = {
+    keys: new Set(),
+    pressed: new Set(),
+    mouse: { x: 0, y: 0, down: false, clicked: false, clickX: 0, clickY: 0 },
+    canvas,
   };
+
+  function onKeyDown(e) {
+    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+    if (!e.repeat) {
+      input.keys.add(e.code);
+      if (KEY_ACTIONS[e.code]) input.pressed.add(e.code);
+    }
+  }
+
+  function onKeyUp(e) {
+    input.keys.delete(e.code);
+  }
+
+  function onMouseMove(e) {
+    const rect = canvas.getBoundingClientRect();
+    input.mouse.x = e.clientX - rect.left;
+    input.mouse.y = e.clientY - rect.top;
+  }
+
+  function onMouseDown(e) {
+    onMouseMove(e);
+    input.mouse.down = true;
+    input.mouse.clicked = true;
+    input.mouse.clickX = input.mouse.x;
+    input.mouse.clickY = input.mouse.y;
+  }
+
+  function onMouseUp() {
+    input.mouse.down = false;
+  }
+
+  function onBlur() {
+    input.keys.clear();
+    input.mouse.down = false;
+  }
+
+  canvas.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mouseup', onMouseUp);
+  canvas.tabIndex = 0;
+
+  input.detach = function detach() {
+    canvas.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('blur', onBlur);
+    canvas.removeEventListener('mousemove', onMouseMove);
+    canvas.removeEventListener('mousedown', onMouseDown);
+    window.removeEventListener('mouseup', onMouseUp);
+  };
+
+  return input;
 }
 
-// v2 retry (18 Nov 2026): input map re-verified — Q cycles the radio (action 32), Space is punch on foot and handbrake while driving.
+// Held-Space handbrake (only meaningful while driving).
+export function handbrake(input) {
+  return input.keys.has('Space');
+}
+
+// Build the frame input for world.step. `camera` is {x, y} — the top
+// left of the viewport in world coordinates. Consumes the edge
+// presses, so each key press fires exactly once.
+export function buildFrameInput(input, camera) {
+  const k = input.keys;
+  let mx = 0;
+  let my = 0;
+  if (k.has('KeyA') || k.has('ArrowLeft')) mx -= 1;
+  if (k.has('KeyD') || k.has('ArrowRight')) mx += 1;
+  if (k.has('KeyW') || k.has('ArrowUp')) my -= 1;
+  if (k.has('KeyS') || k.has('ArrowDown')) my += 1;
+
+  let steer = 0;
+  let throttle = 0;
+  if (k.has('KeyA') || k.has('ArrowLeft')) steer -= 1;
+  if (k.has('KeyD') || k.has('ArrowRight')) steer += 1;
+  if (k.has('KeyW') || k.has('ArrowUp')) throttle += 1;
+  if (k.has('KeyS') || k.has('ArrowDown')) throttle -= 1;
+
+  let actions = 0;
+  for (const code of input.pressed) {
+    actions |= KEY_ACTIONS[code] || 0;
+  }
+  input.pressed.clear();
+
+  return {
+    mx, my,
+    aimX: camera.x + input.mouse.x,
+    aimY: camera.y + input.mouse.y,
+    actions,
+    shooting: input.mouse.down,
+    running: k.has('ShiftLeft') || k.has('ShiftRight'),
+    steer, throttle,
+    handbrake: handbrake(input),
+  };
+}
