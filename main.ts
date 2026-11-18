@@ -1,53 +1,48 @@
-// Solmar City — a make.fun gta6-01 entry, packaged by this file.
-// v2 (18 Nov 2026): eight story missions, boats, in-game radio, taxi
-// fares, Solmar Coins, roadblocks and a police helicopter — same hand-in,
-// same static files, more city to play in.
+// main.ts — the hand-in for the make.fun gta6-01 bounty.
 //
-// The game itself is plain static files: game/index.html plus its ES modules
-// under game/src/. No build step, no libraries, no network requests — a
-// desktop browser loads it offline. This script is only the hand-in: it
-// copies game/ and screenshots/ next to /output (or MAKEFUN_OUTPUT_DIR when
-// set, for local runs) and writes /output/dossier.json, the summary the
-// judge reads, using the vendored make.fun library.
+// The site judges an entry from its dossier, so this file's whole job
+// is to build one: copy the playable game (game/) and its screenshots
+// (screenshots/) into the output directory, then write dossier.json
+// there with the kit's own buildDossier.
 //
-// Play the game locally with:
-//   node serve.ts   (then open http://localhost:8080)
-// Package it locally with:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Run it with Node from the repository root:
+//
+//   node main.ts
+//
+// The output goes to $OUTPUT_DIR when that is set, otherwise /output.
+// The dossier's text budget (160 KiB) comes from the competition's
+// gate: the outline of the source has to fit inside it.
+//
+// The game itself is 21 modules under game/src: the world, city and
+// renderer, combat, police (cruisers + foot cops) and the roadblock /
+// helicopter unit, traffic and pedestrians, boats, the four-station
+// radio, the audio engine, coins and taxi fares, saving, and three
+// mission packs — five story missions, three more, and the two new
+// v2-retry missions (M9 Night Shift at the Docks, M10 King of Solmar).
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-// The folder this file lives in — the game and the screenshots sit beside it.
-const here = fileURLToPath(new URL('.', import.meta.url));
-// The grader's container mounts /output; anywhere else, MAKEFUN_OUTPUT_DIR wins.
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+// The repository root is the folder this file lives in.
+const repoRoot = fileURLToPath(new URL('.', import.meta.url));
+const outputDir = process.env.OUTPUT_DIR || '/output';
+const TEXT_MAX_BYTES = 163840;
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) {
-  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+mkdirSync(outputDir, { recursive: true });
+
+// The playable game and its screenshots, exactly as they are in the repo.
+for (const folder of ['game', 'screenshots']) {
+  const source = join(repoRoot, folder);
+  if (existsSync(source)) {
+    cpSync(source, join(outputDir, folder), { recursive: true });
+  }
 }
 
-// The scorer's caps (reference/gate.json): text_max_bytes is the only one
-// that shapes the dossier's bytes; the rest refuse an entry the scorer
-// would refuse — more than 4 screenshots, or one over 256 KiB; more than
-// 993 files or 48 MiB under game/; or a game path over 1000 bytes. (The
-// dossier also counts beside /output's own 1000-entry cap, with its
-// screenshots/ and dossier.json.)
-// Solmar City's own tally, for the record: 20 source modules, 1 page, 4 shots.
-// v2 adds radio, boats, three more story missions, taxi fares, Solmar Coins,
-// roadblocks and a police helicopter — all wired into the same loop.
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+// The dossier: the kit reads the game tree and the screenshots and
+// writes the outline the judge reads.
+const dossier = buildDossier(repoRoot, { text_max_bytes: TEXT_MAX_BYTES });
+writeFileSync(join(outputDir, 'dossier.json'), dossier);
+
+console.log(`Solmar City handed in to ${outputDir}`);

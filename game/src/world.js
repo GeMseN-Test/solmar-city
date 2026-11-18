@@ -12,6 +12,7 @@ import { addWanted, createPolice, stepPolice } from './police.js';
 import { createCombat, firePlayerBullet, meleeAttack, stepCombat } from './combat.js';
 import { currentObjective, exitCar, startMission, tryInteract, updateMission } from './missions.js';
 import { registerStoryMissions } from './missions2.js';
+import { registerStoryMissions3 } from './missions3.js';
 import { boardBoat, createBoats, exitBoat, stepBoating } from './boats.js';
 import { createPolice2, stepPolice2 } from './police2.js';
 import { createRadio } from './radio.js';
@@ -39,6 +40,7 @@ export function createWorld(seed) {
   const rng = createRng(seed);
   const city = buildCity(rng);
   registerStoryMissions();
+  registerStoryMissions3();
   const state = {
     seed,
     rng,

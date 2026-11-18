@@ -4,16 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Solmar City — an open-world crime game</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23f2c94c'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' fill='%2310141c'%3ES%3C/text%3E%3C/svg%3E">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #10141c; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #game { position: fixed; inset: 0; display: block; }
+  .fallback { margin: 0; padding: 16px; color: #e8e4d2; font: 16px/1.5 system-ui, sans-serif; }
+  #status { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); margin: 0; padding: 4px 12px; border-radius: 999px; background: rgba(16, 20, 28, 0.72); color: #e8e4d2; font: 13px/1.4 system-ui, sans-serif; pointer-events: none; }
+  #status:empty { display: none; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Solmar City: steal cars, lose the cops, run missions across an open coastal city"></canvas>
-<p id="status" role="status" aria-live="polite"></p>
+<canvas id="game" width="1280" height="800"></canvas>
+<p id="status" role="status"></p>
+<p class="fallback">Solmar City. Press Enter or click New Game to play.</p>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

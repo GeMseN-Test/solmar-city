@@ -113,6 +113,14 @@ export function startMission(state, index) {
     const bank = state.city.landmarks.bank;
     spawnGang(state, bank.x, bank.y, 6);
   }
+  if (def.id === 'night-shift') {
+    const docks = state.city.landmarks.docks;
+    spawnGang(state, docks.x, docks.y, 4);
+  }
+  if (def.id === 'king-of-solmar') {
+    const turf = state.city.landmarks.turf;
+    spawnGang(state, turf.x, turf.y, 6);
+  }
   const first = def.objectives[0];
   if (first.kind === 'collect') spawnCrates(state, first);
   state.banner = { title: def.title, sub: def.briefing, t: 0, duration: 4.5 };

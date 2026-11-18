@@ -1,40 +1,51 @@
-// A small seeded random source for Solmar City. The same seed always deals
-// the same city, the same traffic and the same screenshot scenes, so a pose
-// taken today renders exactly the same frame tomorrow.
+// random.js — Solmar City's seeded dice.
 //
-// The generator is a xorshift-style walk over a 32-bit state, written out
-// longhand here so the shape of the stream is easy to follow: scramble the
-// state, fold it, and scale the top bits into [0, 1).
+// Every procedural choice in the city (buildings, traffic, coins, gang
+// spawn jitter) draws from one of these generators, so the same seed
+// always grows the same city. The generator is mulberry32: small, fast,
+// and good enough for a game — it is NOT for security or gambling.
+//
+// A generator is a plain object with five helpers:
+//
+//   next()        -> a float in [0, 1)
+//   range(a, b)   -> a float in [a, b)
+//   int(a, b)     -> a whole number in [a, b], both ends included
+//   pick(list)    -> one element of list, picked at random
+//   chance(p)     -> true with probability p (p in [0, 1])
+//
+// Create one per world with createRng(seed). Two generators made from
+// the same seed produce the same sequence, call for call.
+
 export function createRng(seed) {
+  // Keep the state as an unsigned 32-bit integer. A seed of 0 would
+  // freeze some generators, so fold it into a nonzero starting value.
   let state = (seed >>> 0) || 0x9e3779b9;
+
   function next() {
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    state >>>= 0;
-    // Fold the scrambled state once more so neighbouring outputs diverge.
-    let folded = state ^ (state >>> 11);
-    folded = Math.imul(folded, 0x85ebca6b) >>> 0;
-    folded = (folded ^ (folded >>> 13)) >>> 0;
-    return folded / 4294967296;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
-  return {
-    next,
-    /** A float in [min, max). */
-    range(min, max) {
-      return min + next() * (max - min);
-    },
-    /** An integer in [min, max] inclusive. */
-    int(min, max) {
-      return min + Math.floor(next() * (max - min + 1));
-    },
-    /** One element of a non-empty array, uniformly. */
-    pick(list) {
-      return list[Math.floor(next() * list.length)];
-    },
-    /** True with probability p (0 to 1). */
-    chance(p) {
-      return next() < p;
-    },
-  };
+
+  function range(min, max) {
+    return min + next() * (max - min);
+  }
+
+  function int(min, max) {
+    // +1 makes the top end reachable: int(1, 6) can roll a 6.
+    return Math.floor(min + next() * (max - min + 1));
+  }
+
+  function pick(list) {
+    if (!list || list.length === 0) return undefined;
+    return list[int(0, list.length - 1)];
+  }
+
+  function chance(probability) {
+    return next() < probability;
+  }
+
+  return { next, range, int, pick, chance };
 }
