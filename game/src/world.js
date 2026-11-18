@@ -40,7 +40,7 @@ export function createWorld(seed) {
   const rng = createRng(seed);
   const city = buildCity(rng);
   registerStoryMissions();
-  registerStoryMissions3();
+  registerStoryMissions3(); // Act three: M9 Night Shift at the Docks + M10 King of Solmar.
   const state = {
     seed,
     rng,

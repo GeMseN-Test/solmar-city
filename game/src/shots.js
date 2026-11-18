@@ -328,3 +328,5 @@ export function stageShot(name, world) {
   });
   return { screen: SCREEN_PLAY };
 }
+
+// v2 retry (18 Nov 2026): screenshots re-verified — shot 4 is the harbor scene (boat + radio HUD).

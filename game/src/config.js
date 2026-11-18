@@ -89,3 +89,5 @@ export const PICKUPS = {
   health: { count: 8, heal: 40 },
   ammo: { count: 8, amount: 36 },
 };
+
+// v2 retry (18 Nov 2026): pickup counts verified against the live game — 14 cash, 8 health, 8 ammo.

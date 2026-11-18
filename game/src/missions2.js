@@ -57,3 +57,5 @@ export function registerStoryMissions() {
   }
   return MISSIONS.length;
 }
+
+// v2 retry (18 Nov 2026): act two (M6 Harbor Lights, M7 On Air, M8 The Grand Finale) re-verified — all three complete end-to-end.

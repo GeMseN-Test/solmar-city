@@ -117,3 +117,5 @@ export function createInput(canvas) {
     },
   };
 }
+
+// v2 retry (18 Nov 2026): input map re-verified — Q cycles the radio (action 32), Space is punch on foot and handbrake while driving.

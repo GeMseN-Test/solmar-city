@@ -47,3 +47,5 @@ No build step, no network requests — the whole game is `game/index.html` plus 
 - `serve.ts` — a tiny static server for local play.
 
 Built with [make.fun](https://make.fun) for the [gta6-01 bounty](https://make.fun/bounty/gta6-01).
+
+v2 retry (18 Nov 2026): the game modules were re-authored from the spec in a fresh recording for a second v2 attempt. This build also fixes four real bugs found while re-authoring — combat cooldowns that never ticked down (the player could only shoot and punch once), kills that were never counted (defeat objectives could never complete), a missing `#status` element on the page, and a missing favicon.

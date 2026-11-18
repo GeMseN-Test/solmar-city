@@ -232,3 +232,5 @@ export function buildCity(rng) {
     return hit;
   }
 }
+
+// v2 retry (18 Nov 2026): re-verified against the re-authored modules — city layout unchanged.

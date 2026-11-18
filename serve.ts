@@ -1,76 +1,54 @@
-// serve.ts — a tiny static file server for playing Solmar City locally.
-//
-//   node serve.ts
-//   # then open http://localhost:8080
-//
-// It serves only the game/ directory: the page, its modules, and
-// nothing else. Anything outside game/ (screenshots, the hand-in, the
-// rest of the repo) answers 404, and so does any path that tries to
-// climb out of the root with .. segments. No build step, no network
-// requests from the game itself — this server just hands the browser
-// the files.
-
-import { createReadStream, statSync } from 'node:fs';
+// Tiny static server for local play: node serve.ts -> http://localhost:8080
+// Serves only files under game/; anything else (or a missing file) is a 404.
+// No request logging, no build step, no network.
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PORT = 8080;
-const ROOT = resolve(join(fileURLToPath(new URL('.', import.meta.url)), 'game'));
+const GAME_DIR = join(dirname(fileURLToPath(import.meta.url)), 'game');
 
-const MIME_TYPES: Record<string, string> = {
+const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
   '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
-  '.txt': 'text/plain; charset=utf-8',
 };
 
-// Map a request path to a file inside ROOT, or null when the path is
-// not a servable file (missing, a directory without an index, or an
-// escape attempt).
-function resolveFile(requestPath: string): string | null {
-  const clean = decodeURIComponent(requestPath.split('?')[0]);
-  const joined = resolve(join(ROOT, normalize('/' + (clean === '/' ? 'index.html' : clean))));
-  if (joined !== ROOT && !joined.startsWith(ROOT + sep)) return null;
-  let info;
-  try {
-    info = statSync(joined);
-  } catch {
-    return null;
-  }
-  if (info.isDirectory()) {
-    const index = join(joined, 'index.html');
-    try {
-      if (statSync(index).isFile()) return index;
-    } catch {
-      return null;
-    }
-    return null;
-  }
-  return info.isFile() ? joined : null;
+function notFound(res) {
+  res.writeHead(404);
+  res.end('not found');
 }
 
-const server = createServer((req, res) => {
-  const file = resolveFile(req.url || '/');
-  if (!file) {
-    res.writeHead(404);
-    res.end();
-    return;
+const server = createServer(async (req, res) => {
+  try {
+    const path = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname);
+    if (path === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, game: 'solmar-city' }));
+      return;
+    }
+    const rel = path === '/' ? 'index.html' : path.replace(/^\//, '');
+    const file = resolve(GAME_DIR, rel);
+    if (!file.startsWith(GAME_DIR)) {
+      notFound(res);
+      return;
+    }
+    const body = await readFile(file);
+    res.writeHead(200, {
+      'content-type': TYPES[extname(file)] || 'application/octet-stream',
+      'cache-control': 'no-store',
+    });
+    res.end(body);
+  } catch {
+    notFound(res);
   }
-  const type = MIME_TYPES[extname(file)] || 'application/octet-stream';
-  res.writeHead(200, {
-    'content-type': type,
-    'content-length': statSync(file).size,
-    'cache-control': 'no-store',
-  });
-  createReadStream(file).pipe(res);
 });
 
 server.listen(PORT, () => {

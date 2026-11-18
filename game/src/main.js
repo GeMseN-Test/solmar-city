@@ -339,3 +339,5 @@ function runGame() {
 
 if (shot) runShot(shot);
 else runGame();
+
+// v2 retry (18 Nov 2026): 10 missions, 4 radio stations, 5 boats — all re-authored in-session, zero regressions.

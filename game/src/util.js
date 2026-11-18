@@ -1,48 +1,41 @@
-// util.js — tiny math helpers shared by the whole game.
-//
-// Nothing here knows about the game itself: these are the same few
-// operations every system keeps re-implementing (clamping a number,
-// measuring a gap, turning toward a heading). One copy, used everywhere,
-// so the behaviour stays identical in every module that needs it.
+// Small math helpers shared by the world, traffic, boats and combat.
 
-// Keep value inside [low, high]. Values already inside pass through
-// untouched; anything outside is pulled back to the nearest edge.
-export function clampNumber(value, low, high) {
-  if (value < low) return low;
-  if (value > high) return high;
+export function clampNumber(value, min, max) {
+  if (value < min) return min;
+  if (value > max) return max;
   return value;
 }
 
-// Straight-line distance between two points (ax, ay) and (bx, by).
-export function distanceBetween(ax, ay, bx, by) {
-  return Math.hypot(bx - ax, by - ay);
-}
-
-// Blend between a and b: t = 0 gives a, t = 1 gives b, 0.5 the middle.
 export function lerpNumber(a, b, t) {
   return a + (b - a) * t;
 }
 
-// The shortest signed turn from angle `from` to angle `to`, wrapped to
-// the range [-PI, PI]. Positive means turning anticlockwise.
-export function angleDifference(from, to) {
-  let diff = (to - from) % (Math.PI * 2);
-  if (diff > Math.PI) diff -= Math.PI * 2;
-  if (diff < -Math.PI) diff += Math.PI * 2;
-  return diff;
+export function distanceBetween(x1, y1, x2, y2) {
+  return Math.hypot(x2 - x1, y2 - y1);
 }
 
-// Move `current` toward `target` by at most `maxStep` radians, taking
-// the short way around. Returns the new angle (exactly `target` when
-// the gap is smaller than one step).
+export function circlesOverlap(x1, y1, r1, x2, y2, r2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const radii = r1 + r2;
+  return dx * dx + dy * dy < radii * radii;
+}
+
+// Wrap any angle into [-PI, PI].
+export function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+// Shortest signed turn from angle a to angle b, in [-PI, PI].
+export function angleDifference(a, b) {
+  return wrapAngle(b - a);
+}
+
+// Move current toward target by at most maxStep, along the shortest arc.
 export function turnToward(current, target, maxStep) {
-  const diff = angleDifference(current, target);
-  if (Math.abs(diff) <= maxStep) return target;
-  return current + Math.sign(diff) * maxStep;
-}
-
-// True when two circles touch or overlap: the distance between their
-// centres is smaller than the sum of their radii.
-export function circlesOverlap(ax, ay, aRadius, bx, by, bRadius) {
-  return distanceBetween(ax, ay, bx, by) < aRadius + bRadius;
+  const d = angleDifference(current, target);
+  if (Math.abs(d) <= maxStep) return wrapAngle(target);
+  return wrapAngle(current + Math.sign(d) * maxStep);
 }

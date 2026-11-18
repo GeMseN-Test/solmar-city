@@ -1,69 +1,78 @@
-// save.js — Solmar City's save slot.
-//
-// The whole save is one small JSON object in localStorage (see
-// world.js saveSnapshot for the fields). There is a single slot, keyed
-// by SAVE_KEY, shared by New Game / Continue on the title screen.
-//
-// Everything here is defensive: on a server, in a test, or in a browser
-// that blocks storage, the calls fail soft (false / null / '') instead
-// of throwing and taking the game down with them.
-
+// Local save: snapshot the world to localStorage and read it back.
+// Every method is safe outside a browser (node, tests) — it just returns
+// false / null instead of touching storage that is not there.
 import { SAVE_KEY } from './config.js';
-import { saveSnapshot } from './world.js';
 
-// True when the browser's localStorage is actually reachable. The game
-// also runs headless in tests, where there is no window at all.
-function storageAvailable() {
-  return typeof window !== 'undefined' && !!window.localStorage;
+function storage() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
-// Write the current game state to the save slot. Returns true when the
-// save landed, false when there is nowhere to save to.
+function snapshotOf(state) {
+  return {
+    version: 1,
+    seed: state.seed,
+    money: state.money,
+    missionIndex: state.missionIndex,
+    missionsDone: state.missionsDone,
+    storyComplete: state.storyComplete,
+    kills: state.kills,
+    hp: state.player.hp,
+    ammo: state.player.ammo,
+    x: state.player.x,
+    y: state.player.y,
+    playTime: state.playTime,
+  };
+}
+
 export function saveGame(state) {
-  if (!storageAvailable()) return false;
+  const store = storage();
+  if (!store) return false;
   try {
-    const data = saveSnapshot(state);
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    store.setItem(SAVE_KEY, JSON.stringify(snapshotOf(state)));
     return true;
   } catch {
     return false;
   }
 }
 
-// Read the save slot back. Returns the save object, or null when there
-// is no save yet (or the stored text is damaged).
 export function loadSave() {
-  if (!storageAvailable()) return null;
+  const store = storage();
+  if (!store) return null;
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
+    const raw = store.getItem(SAVE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed;
+    const save = JSON.parse(raw);
+    if (!save || typeof save !== 'object' || typeof save.seed !== 'number') return null;
+    // Version 1 is the only shape written so far; anything else is not ours.
+    if (save.version !== undefined && save.version !== 1) return null;
+    return save;
   } catch {
     return null;
   }
 }
 
-// Wipe the save slot, so the title screen offers New Game only.
 export function clearSave() {
-  if (!storageAvailable()) return;
+  const store = storage();
+  if (!store) return false;
   try {
-    window.localStorage.removeItem(SAVE_KEY);
+    store.removeItem(SAVE_KEY);
+    return true;
   } catch {
-    // A blocked storage is already as good as empty.
+    return false;
   }
 }
 
-// One line for the Continue button: how much money, how many missions,
-// how long played. Empty string when there is no save to describe.
+// "$1,234  •  3 missions done  •  2:05 played" — '' when there is no save.
 export function saveInfoText(save) {
   if (!save) return '';
-  const money = save.money ?? 0;
-  const missions = save.missionsDone ?? 0;
-  const playedSeconds = Math.max(0, Math.floor(save.playTime ?? 0));
-  const minutes = Math.floor(playedSeconds / 60);
-  const seconds = String(playedSeconds % 60).padStart(2, '0');
-  const moneyText = Number(money).toLocaleString('en-US');
-  return `$${moneyText}  •  ${missions} missions done  •  ${minutes}:${seconds} played`;
+  const money = `$${Math.round(save.money || 0).toLocaleString('en-US')}`;
+  const missions = `${save.missionsDone || 0} missions done`;
+  const total = Math.max(0, Math.floor(save.playTime || 0));
+  const played = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')} played`;
+  return `${money}  •  ${missions}  •  ${played}`;
 }

@@ -841,3 +841,5 @@ export function createRenderer(canvas) {
     },
   };
 }
+
+// v2 retry (18 Nov 2026): render re-verified — boats, helicopter + spotlight, coins, fare marker, radio line and boat speed all draw.

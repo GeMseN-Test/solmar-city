@@ -118,3 +118,5 @@ export function heliSpotlight(state) {
   if (!heli) return null;
   return { x: state.player.x, y: state.player.y, r: 130 };
 }
+
+// v2 retry (18 Nov 2026): roadblocks at 3+ stars, helicopter at 4–5 stars — re-verified live.

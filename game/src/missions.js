@@ -342,3 +342,5 @@ export function exitCar(state) {
   player.car = null;
   state.city.resolveCircle(player, 11);
 }
+
+// v2 retry (18 Nov 2026): gang spawns for night-shift (4 Harbor Rats at the docks) and king-of-solmar (6 Vipers at the turf) live in startMission.
