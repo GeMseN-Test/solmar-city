@@ -1,4 +1,7 @@
 // Solmar City — a make.fun gta6-01 entry, packaged by this file.
+// v2 (18 Nov 2026): eight story missions, boats, in-game radio, taxi
+// fares, Solmar Coins, roadblocks and a police helicopter — same hand-in,
+// same static files, more city to play in.
 //
 // The game itself is plain static files: game/index.html plus its ES modules
 // under game/src/. No build step, no libraries, no network requests — a
@@ -35,7 +38,9 @@ if (existsSync(join(here, 'screenshots'))) {
 // 993 files or 48 MiB under game/; or a game path over 1000 bytes. (The
 // dossier also counts beside /output's own 1000-entry cap, with its
 // screenshots/ and dossier.json.)
-// Solmar City's own tally, for the record: 15 source modules, 1 page, 4 shots.
+// Solmar City's own tally, for the record: 20 source modules, 1 page, 4 shots.
+// v2 adds radio, boats, three more story missions, taxi fares, Solmar Coins,
+// roadblocks and a police helicopter — all wired into the same loop.
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {

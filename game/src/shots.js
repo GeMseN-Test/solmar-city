@@ -10,6 +10,8 @@
 import { STEP } from './world.js';
 import { addWanted } from './police.js';
 import { startMission } from './missions.js';
+import { boardBoat } from './boats.js';
+import { cycleRadio } from './radio.js';
 import { angleDifference, clampNumber, distanceBetween } from './util.js';
 import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
@@ -17,7 +19,7 @@ const SAMPLE = STEP;
 
 /** Blank input: nothing held, nothing pressed. */
 function emptyInput() {
-  return { mx: 0, my: 0, steer: 0, throttle: 0, running: false, aimX: 0, aimY: 0, shooting: false, actions: 0 };
+  return { mx: 0, my: 0, steer: 0, throttle: 0, handbrake: false, running: false, aimX: 0, aimY: 0, shooting: false, actions: 0 };
 }
 
 /** Drive a car toward a point: steer at it, ease off when facing away. */
@@ -224,14 +226,14 @@ function runSteps(world, seconds, drive) {
 }
 
 /**
- * Set `world` to the named scene (start, city, chase or mission; any other
- * name is start) and return the screen to draw over it.
+ * Set `world` to the named scene (start, city, chase, mission or harbor;
+ * any other name is start) and return the screen to draw over it.
  */
 export function stageShot(name, world) {
   world.reset();
   const state = world.state;
 
-  if (name !== 'city' && name !== 'chase' && name !== 'mission') {
+  if (name !== 'city' && name !== 'chase' && name !== 'mission' && name !== 'harbor') {
     // Title backdrop: the city idles for a few seconds under the menu.
     runSteps(world, 6, () => emptyInput());
     state.camera.x = state.player.x;
@@ -292,6 +294,23 @@ export function stageShot(name, world) {
         target = nextDowntownJunction(current);
       }
       return drive(current, target.x, target.y);
+    });
+    return { screen: SCREEN_PLAY };
+  }
+
+  if (name === 'harbor') {
+    // Harbor Lights: Mara at the helm off the Marina, the radio on, Gull
+    // Island ahead — the boat, the sea and the v2 HUD in one frame.
+    startMission(state, 5);
+    boardBoat(state, state.boats[0]);
+    cycleRadio(state.radio);
+    runSteps(world, 2, () => {
+      const input = emptyInput();
+      input.throttle = 0.6;
+      input.steer = 0.08;
+      input.aimX = state.player.x + 200;
+      input.aimY = state.player.y;
+      return input;
     });
     return { screen: SCREEN_PLAY };
   }

@@ -30,6 +30,7 @@ import {
   ACTION_MUTE,
   ACTION_PAUSE,
   ACTION_PUNCH,
+  ACTION_RADIO,
   createInput,
 } from './input.js';
 import {
@@ -41,6 +42,8 @@ import {
   SCREEN_TITLE,
 } from './render.js';
 import { createAudio } from './audio.js';
+import { cycleRadio, ensureRadio, radioName, tickRadio } from './radio.js';
+import { nearestBoat } from './boats.js';
 import { stageShot } from './shots.js';
 import { loadSave, saveGame, saveInfoText } from './save.js';
 import { currentObjective, nearestStealableCar } from './missions.js';
@@ -159,7 +162,9 @@ function runGame() {
 
   function computePrompt(state) {
     const player = state.player;
+    if (player.inBoat) return 'E — Step ashore';
     if (player.inCar) return 'E — Step out of the car';
+    if (nearestBoat(state, player.x, player.y)) return 'E — Board the boat';
     const objective = currentObjective(state);
     if (objective && objective.kind === 'interact') {
       const spot = state.city.landmarks[objective.key];
@@ -199,6 +204,7 @@ function runGame() {
       my: move.y,
       steer: input.steer(),
       throttle: input.throttle(),
+      handbrake: input.handbrake(),
       running: input.running(),
       aimX: aim.x,
       aimY: aim.y,
@@ -211,6 +217,11 @@ function runGame() {
     if (actions & ACTION_MUTE) {
       muted = !muted;
       audio.setMuted(muted);
+    }
+    if (actions & ACTION_RADIO) {
+      const name = cycleRadio(world.state.radio);
+      ensureRadio(world.state.radio);
+      announce(`Radio: ${name}.`);
     }
     if (screen === SCREEN_PLAY) {
       if (actions & ACTION_PAUSE) {
@@ -243,7 +254,7 @@ function runGame() {
     if (screen === SCREEN_TITLE || screen === SCREEN_HOWTO) {
       // Attract mode: the city idles behind the menu.
       world.step(
-        { mx: 0, my: 0, steer: 0, throttle: 0, running: false, aimX: 0, aimY: 0, shooting: false, actions: 0 },
+        { mx: 0, my: 0, steer: 0, throttle: 0, handbrake: false, running: false, aimX: 0, aimY: 0, shooting: false, actions: 0 },
         STEP,
       );
     } else if (screen === SCREEN_PLAY) {
@@ -270,6 +281,7 @@ function runGame() {
     // First gesture wakes the audio; after that the engine and the groove run.
     if (screen === SCREEN_PLAY) {
       audio.stepMusic();
+      tickRadio(world.state.radio);
       const state = world.state;
       audio.engine(state.player.inCar && state.player.car ? Math.abs(state.player.car.speed) / 560 : 0);
       audio.siren(state.wanted > 0);

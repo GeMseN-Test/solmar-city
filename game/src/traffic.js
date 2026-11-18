@@ -10,7 +10,7 @@ import { TRAFFIC_CARS, PEDESTRIANS } from './config.js';
 import { clampNumber, distanceBetween } from './util.js';
 
 const CAR_COLORS = ['#d94f3d', '#3d7dd9', '#e8c93d', '#7dd93d', '#d9d9d9', '#8a5fd9', '#e88a3d', '#3dd9c4'];
-const CAR_MODELS = ['sedan', 'sedan', 'sedan', 'taxi', 'van', 'sport'];
+const CAR_MODELS = ['sedan', 'sedan', 'sedan', 'taxi', 'van', 'sport', 'truck'];
 const PED_SHIRTS = ['#e86a6a', '#6aa8e8', '#e8c96a', '#7ac76a', '#c96ad8', '#e8e8e8', '#6ad8c9', '#e89a4d'];
 const PED_SKINS = ['#e8b98a', '#c98a5a', '#8a5a3a', '#f2c9a0'];
 

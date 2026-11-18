@@ -76,8 +76,8 @@ export const WANTED = {
   bustSeconds: 1.6,
 };
 
-export const TRAFFIC_CARS = 14;
-export const PEDESTRIANS = 26;
+export const TRAFFIC_CARS = 16;
+export const PEDESTRIANS = 34;
 export const GANG_SHOT_COOLDOWN = 1.15;
 
 export const SAVE_KEY = 'solmar-city-save-v1';

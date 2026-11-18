@@ -9,6 +9,7 @@ export const ACTION_PAUSE = 2;
 export const ACTION_INTERACT = 4;
 export const ACTION_PUNCH = 8;
 export const ACTION_MUTE = 16;
+export const ACTION_RADIO = 32;
 
 const UP = new Set(['ArrowUp', 'KeyW']);
 const DOWN = new Set(['ArrowDown', 'KeyS']);
@@ -20,6 +21,7 @@ const PAUSE = new Set(['KeyP', 'Escape']);
 const INTERACT = new Set(['KeyE']);
 const PUNCH = new Set(['Space']);
 const MUTE = new Set(['KeyM']);
+const RADIO = new Set(['KeyQ']);
 
 export function createInput(canvas) {
   const held = new Set();
@@ -39,6 +41,7 @@ export function createInput(canvas) {
     else if (INTERACT.has(code)) actions |= ACTION_INTERACT;
     else if (PUNCH.has(code)) actions |= ACTION_PUNCH;
     else if (MUTE.has(code)) actions |= ACTION_MUTE;
+    else if (RADIO.has(code)) actions |= ACTION_RADIO;
     if (UP.has(code) || DOWN.has(code) || LEFT.has(code) || RIGHT.has(code) || PUNCH.has(code)) {
       event.preventDefault();
     }
@@ -84,6 +87,10 @@ export function createInput(canvas) {
     /** Throttle: -1 reverse, 1 forward, from W/S or the arrow keys. */
     throttle() {
       return (hasAny(UP) ? 1 : 0) - (hasAny(DOWN) ? 1 : 0);
+    },
+    /** Handbrake: Space held while driving (on foot it still punches). */
+    handbrake() {
+      return hasAny(PUNCH);
     },
     /** On-foot move vector, normalised, from WASD / arrows. */
     moveVector() {

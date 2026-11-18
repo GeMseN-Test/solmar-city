@@ -5,6 +5,9 @@
 
 import { BEACH_TOP, COLORS, GRID, ROAD_X, ROAD_Y, SEA_TOP, WORLD } from './config.js';
 import { currentObjective, missionMarker } from './missions.js';
+import { radioName } from './radio.js';
+import { fareMarker, sideJobsText } from './sidejobs.js';
+import { heliSpotlight } from './police2.js';
 import { clampNumber, distanceBetween } from './util.js';
 
 export const SCREEN_TITLE = 'title';
@@ -175,13 +178,17 @@ export function createRenderer(canvas) {
       context.fillRect(300, y, 26, 3);
       context.fillRect(420, y, 26, 3);
     }
-    // Boats in the marina water.
-    for (const [bx, by, bc] of [[2440, 2130, '#e8e8e8'], [2560, 2140, '#f0b070'], [2660, 2124, '#a0c4e8']]) {
-      context.fillStyle = bc;
-      roundRect(bx, by, 64, 20, 9);
+    // Boats moored in the marina water (drivable — press E at the beach).
+    for (const boat of state.boats ?? []) {
+      context.save();
+      context.translate(boat.x, boat.y);
+      context.rotate(boat.angle);
+      context.fillStyle = boat.color;
+      roundRect(-32, -10, 64, 20, 9);
       context.fill();
       context.fillStyle = '#40454f';
-      context.fillRect(bx + 22, by - 8, 20, 10);
+      context.fillRect(-10, -18, 20, 10);
+      context.restore();
     }
   }
 
@@ -220,6 +227,30 @@ export function createRenderer(canvas) {
       for (let i = 0; i < 4; i += 1) context.fillRect(-18 + i * 10, -2, 5, 4);
       context.fillStyle = '#f2c93d';
       context.fillRect(-4, -14, 10, 4);
+    }
+    if (car.model === 'sport') {
+      // A low, long silhouette with a rear spoiler.
+      context.fillStyle = car.color;
+      roundRect(-27, -10, 54, 20, 9);
+      context.fill();
+      context.fillStyle = 'rgba(20,30,45,0.85)';
+      roundRect(-2, -8, 12, 16, 4);
+      context.fill();
+      context.fillStyle = '#1c1e22';
+      context.fillRect(-27, -11, 4, 22);
+    }
+    if (car.model === 'van' || car.model === 'truck') {
+      // A tall box body: reads as a work van or a flatbed truck at a glance.
+      context.fillStyle = car.color;
+      roundRect(-26, -12, 52, 24, 5);
+      context.fill();
+      context.fillStyle = 'rgba(20,30,45,0.85)';
+      context.fillRect(10, -9, 12, 18);
+      context.fill();
+      if (car.model === 'truck') {
+        context.fillStyle = '#8a6a45';
+        context.fillRect(-26, -10, 22, 20);
+      }
     }
     if (car.model === 'police') {
       const phase = Math.floor(car.lightPhase) % 2 === 0;
@@ -340,6 +371,63 @@ export function createRenderer(canvas) {
       context.stroke();
     }
 
+    // Solmar Coins: hidden gold, bobbing where the streets hide them.
+    for (const coin of state.sideJobs?.coins ?? []) {
+      if (coin.taken) continue;
+      const bobY = Math.sin(coin.bob) * 3;
+      context.fillStyle = '#f2c94c';
+      context.beginPath();
+      context.arc(coin.x, coin.y + bobY, 9, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = '#7a5c00';
+      context.lineWidth = 2;
+      context.stroke();
+      text('S', coin.x, coin.y + bobY + 4, 11, '#7a5c00', 'center', 800);
+    }
+
+    // Taxi fare: a waving passenger (green), or a pulsing dollar at the destination (gold).
+    const fare = fareMarker(state);
+    if (fare) {
+      const waiting = state.sideJobs?.fare?.stage === 'waiting';
+      const pulse = 1 + Math.sin(state.time * 5) * 0.15;
+      context.fillStyle = waiting ? '#2fae8f' : '#f2c94c';
+      context.beginPath();
+      context.arc(fare.x, fare.y, 16 * pulse, 0, Math.PI * 2);
+      context.fill();
+      text(waiting ? '!' : '$', fare.x, fare.y + 5, 16, '#ffffff', 'center', 800);
+    }
+
+    // Police helicopter: a dark body overhead, spotlight pooling below.
+    const heli = state.police2?.heli;
+    const spot = heliSpotlight(state);
+    if (spot) {
+      context.fillStyle = 'rgba(255,240,170,0.20)';
+      context.beginPath();
+      context.arc(spot.x, spot.y, spot.r, 0, Math.PI * 2);
+      context.fill();
+    }
+    if (heli) {
+      context.save();
+      context.translate(heli.x, heli.y);
+      context.rotate(heli.angle);
+      context.fillStyle = '#22375e';
+      context.beginPath();
+      context.ellipse(0, 0, 26, 13, 0, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = 'rgba(255,255,255,0.25)';
+      context.beginPath();
+      context.ellipse(12, 0, 8, 6, 0, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = 'rgba(255,255,255,0.5)';
+      context.lineWidth = 3;
+      const rotor = heli.rotor;
+      context.beginPath();
+      context.moveTo(Math.cos(rotor) * 34, Math.sin(rotor) * 34);
+      context.lineTo(-Math.cos(rotor) * 34, -Math.sin(rotor) * 34);
+      context.stroke();
+      context.restore();
+    }
+
     // Cars: traffic, police, then the player's ride on top.
     for (const car of state.traffic.cars) drawCarShape(car, false);
     for (const car of state.police.cars) drawCarShape(car, false);
@@ -454,6 +542,10 @@ export function createRenderer(canvas) {
     text(`Ammo ${player.ammo}`, 28, 94, 15, '#eef1f5', 'left', 600);
     const mission = state.mission;
     if (mission) text(`${mission.def.title}  •  ${state.missionsDone} done`, 28, 116, 14, '#c9d2de', 'left', 600);
+    // Radio: what is playing, and Q to change the station.
+    if (state.radio) text(`♪ ${radioName(state.radio)}  •  Q to change`, 28, 136, 14, '#8fd0e8', 'left', 600);
+    const jobsLine = sideJobsText(state);
+    if (jobsLine) text(jobsLine, 28, 156, 14, '#f2c94c', 'left', 600);
 
     // Top-right: wanted stars.
     context.fillStyle = 'rgba(16,20,28,0.72)';
@@ -488,7 +580,7 @@ export function createRenderer(canvas) {
 
     // Early-game controls hint, on a pill just above the objective box.
     if (state.playTime < 22 && extras.screen === SCREEN_PLAY) {
-      const hint = 'WASD move  •  E enter / steal car  •  Click shoot  •  Space punch  •  P pause  •  M mute';
+      const hint = 'WASD move  •  E enter / steal car / boat  •  Q radio  •  Click shoot  •  Space punch  •  P pause  •  M mute';
       context.font = `600 13px ${FONT}`;
       const hintWidth = context.measureText(hint).width;
       context.fillStyle = 'rgba(16,20,28,0.6)';
@@ -527,6 +619,15 @@ export function createRenderer(canvas) {
       // Speed sits in the clear strip left of the minimap, never over the city.
       const mph = Math.round(Math.abs(player.car.speed) * 0.12);
       const label = `${mph} mph`;
+      context.fillStyle = 'rgba(16,20,28,0.72)';
+      const labelWidth = 92;
+      roundRect(cw - MINIMAP.w - 24 - labelWidth, ch - 50, labelWidth, 34, 9);
+      context.fill();
+      text(label, cw - MINIMAP.w - 24, ch - 26, 22, '#ffffff', 'right', 800);
+    }
+    if (player.inBoat && player.boat) {
+      const knots = Math.round(Math.abs(player.boat.speed) * 0.12);
+      const label = `${knots} kn`;
       context.fillStyle = 'rgba(16,20,28,0.72)';
       const labelWidth = 92;
       roundRect(cw - MINIMAP.w - 24 - labelWidth, ch - 50, labelWidth, 34, 9);
@@ -636,7 +737,7 @@ export function createRenderer(canvas) {
     by += 68;
     buttons.push(drawButton('howto', bx, by, bw, 54, '?  How to Play', true));
     text('Steal cars. Lose the cops. Run the missions. Take the city.', cw / 2, by + 92, 15, '#c9d2de', 'center');
-    text('WASD move/drive  •  E enter & steal  •  Click shoot  •  Space punch  •  P pause', cw / 2, by + 118, 14, '#8b93a3', 'center');
+    text('WASD move/drive  •  E enter & steal  •  Q radio  •  Space punch / handbrake  •  P pause', cw / 2, by + 118, 14, '#8b93a3', 'center');
     if (extras.saveExists && extras.saveInfo) {
       text(extras.saveInfo, cw / 2, by + 146, 14, '#f2c94c', 'center', 600);
     }
@@ -658,19 +759,20 @@ export function createRenderer(canvas) {
     const lines = [
       'Mara Voss is back in Solmar City with $50 and a grudge.',
       'Follow the yellow marker: steal cars, run jobs for cash,',
-      'and finish all five story missions — ending with the',
-      'Grand Solmar Bank. The whole PD will come after you.',
+      'and finish all eight story missions — ending with the',
+      'Grand Finale at the bank. The whole PD will come after you.',
       '',
       'WASD / Arrows — walk and drive (Shift to run)',
-      'Mouse — aim   •   Click — shoot   •   Space — punch',
-      'E — steal / enter a car, pick up crates, grab the vault',
-      'P / Esc — pause   •   M — mute   •   Progress auto-saves',
+      'Mouse — aim   •   Click — shoot   •   Space — punch / handbrake',
+      'E — steal / enter a car, board a boat, pick up crates',
+      'Q — change the radio station   •   P / Esc — pause   •   M — mute',
       '',
       'Stars mean heat: crimes raise them, hiding lowers them.',
-      'Cops chase you in cars and on foot. Stay out of reach.',
+      'At 3 stars the PD sets roadblocks; at 4 a helicopter joins in.',
+      'Between jobs: drive a taxi fare, or hunt the 12 Solmar Coins.',
     ];
     lines.forEach((line, i) => {
-      text(line, cw / 2, y + 106 + i * 26, 16, i < 4 ? '#eef1f5' : '#c9d2de', 'center');
+      text(line, cw / 2, y + 96 + i * 24, 16, i < 4 ? '#eef1f5' : '#c9d2de', 'center');
     });
     const buttons = [drawButton('back', cw / 2 - 110, y + h - 66, 220, 48, '←  Back', true)];
     return buttons;

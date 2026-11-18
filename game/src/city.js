@@ -64,6 +64,8 @@ export function buildCity(rng) {
     turf: { key: 'turf', name: "Vipers' Turf — Old Town", x: 700, y: 1790, r: 80, color: '#d8a0d0' },
     docks: { key: 'docks', name: 'Solmar Docks', x: 360, y: 130, r: 70, color: '#a0c4e8' },
     marina: { key: 'marina', name: 'Solmar Marina', x: 2520, y: 1930, r: 70, color: '#2f9fc2' },
+    radio: { key: 'radio', name: 'Solmar Radio', x: 2520, y: 130, r: 70, color: '#e8a13d' },
+    island: { key: 'island', name: 'Gull Island', x: 1440, y: 2130, r: 70, color: '#f2c94c' },
   };
 
   const city = {

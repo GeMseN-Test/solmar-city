@@ -101,6 +101,12 @@ export function stepPolice(state, dt) {
       police.cars.splice(i, 1);
       continue;
     }
+    // Roadblock cars are parked, not chasing: they just sit across the
+    // road flashing their lights until the heat drops (police2 clears them).
+    if (car.roadblock) {
+      car.lightPhase += dt * 9;
+      continue;
+    }
     const dx = player.x - car.x;
     const dy = player.y - car.y;
     const dist = Math.hypot(dx, dy);

@@ -9,6 +9,7 @@
 
 import { addWanted } from './police.js';
 import { spawnGang } from './combat.js';
+import { boardBoat, nearestBoat } from './boats.js';
 import { distanceBetween } from './util.js';
 
 export const MISSIONS = [
@@ -104,6 +105,14 @@ export function startMission(state, index) {
     const turf = state.city.landmarks.turf;
     spawnGang(state, turf.x, turf.y, 4);
   }
+  if (def.id === 'on-air') {
+    const tower = state.city.landmarks.radio;
+    spawnGang(state, tower.x, tower.y, 3);
+  }
+  if (def.id === 'grand-finale') {
+    const bank = state.city.landmarks.bank;
+    spawnGang(state, bank.x, bank.y, 6);
+  }
   const first = def.objectives[0];
   if (first.kind === 'collect') spawnCrates(state, first);
   state.banner = { title: def.title, sub: def.briefing, t: 0, duration: 4.5 };
@@ -171,6 +180,8 @@ export function updateMission(state) {
     done = state.wanted === 0;
   } else if (objective.kind === 'defeat') {
     done = state.kills - mission.killsAtStart >= objective.count;
+  } else if (objective.kind === 'board') {
+    done = player.inBoat;
   } else if (objective.kind === 'collect') {
     done = mission.collected >= objective.count;
   }
@@ -208,7 +219,7 @@ function completeMission(state) {
     // The story banner goes up last, so the freelance briefing that
     // startMission posts does not cover it.
     state.banner = {
-      title: 'STORY COMPLETE — The Solmar Score!',
+      title: 'STORY COMPLETE — The Grand Finale!',
       sub: `Mara owns this city now. Freelance runs pay $150 each. Total $${state.money}`,
       t: 0,
       duration: 6,
@@ -246,6 +257,16 @@ export function tryInteract(state) {
         updateMission(state);
         return 'crate';
       }
+    }
+  }
+
+  // Boats: step aboard a moored boat from the beach or the docks.
+  if (!player.inCar && !player.inBoat) {
+    const boat = nearestBoat(state, player.x, player.y);
+    if (boat) {
+      boardBoat(state, boat);
+      updateMission(state);
+      return 'boat';
     }
   }
 

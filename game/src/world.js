@@ -11,6 +11,11 @@ import { createTraffic, stepTraffic } from './traffic.js';
 import { addWanted, createPolice, stepPolice } from './police.js';
 import { createCombat, firePlayerBullet, meleeAttack, stepCombat } from './combat.js';
 import { currentObjective, exitCar, startMission, tryInteract, updateMission } from './missions.js';
+import { registerStoryMissions } from './missions2.js';
+import { boardBoat, createBoats, exitBoat, stepBoating } from './boats.js';
+import { createPolice2, stepPolice2 } from './police2.js';
+import { createRadio } from './radio.js';
+import { createSideJobs, stepSideJobs } from './sidejobs.js';
 import { clampNumber, circlesOverlap, distanceBetween } from './util.js';
 
 export const STEP = 1 / 60;
@@ -33,12 +38,17 @@ const ACTION_PUNCH_BIT = 8;
 export function createWorld(seed) {
   const rng = createRng(seed);
   const city = buildCity(rng);
+  registerStoryMissions();
   const state = {
     seed,
     rng,
     city,
     player: null,
     playerCar: null,
+    boats: null,
+    radio: null,
+    police2: null,
+    sideJobs: null,
     traffic: null,
     police: null,
     combat: null,
@@ -79,9 +89,15 @@ export function resetWorld(state) {
     ammo: PLAYER.startAmmo,
     inCar: false,
     car: null,
+    inBoat: false,
+    boat: null,
     invuln: 0,
   };
   state.playerCar = null;
+  state.boats = createBoats();
+  state.radio = createRadio();
+  state.police2 = createPolice2();
+  state.sideJobs = createSideJobs(state.rng, city);
   state.traffic = createTraffic(state.rng, city);
   state.police = createPolice();
   state.combat = createCombat();
@@ -127,9 +143,11 @@ function stepWorld(state, input, dt) {
   player.invuln = Math.max(0, player.invuln - dt);
   if (state.banner) state.banner.t += dt;
 
-  // --- Player: on foot or behind the wheel. ---
+  // --- Player: on foot, behind the wheel, or at the helm. ---
   if (player.inCar && player.car) {
     events |= stepDriving(state, input, dt);
+  } else if (player.inBoat && player.boat) {
+    events |= stepBoating(state, input, dt);
   } else {
     events |= stepOnFoot(state, input, dt);
   }
@@ -137,6 +155,9 @@ function stepWorld(state, input, dt) {
   // --- The city lives around the player. ---
   stepTraffic(state.traffic, state.city, state.rng, dt);
   const policeEvents = stepPolice(state, dt);
+  stepPolice2(state, dt);
+  const sideJob = stepSideJobs(state, dt);
+  if (sideJob === 'coin' || sideJob === 'fare') events |= EVENT_PICKUP;
   if (policeEvents.busted) events |= EVENT_BUSTED;
   if (policeEvents.rammed) events |= EVENT_CRASH;
   const combatEvents = stepCombat(state, dt);
@@ -189,9 +210,10 @@ function stepWorld(state, input, dt) {
     p.vy *= Math.max(0, 1 - 2.5 * dt);
     if (p.life <= 0) state.particles.splice(i, 1);
   }
-  const lookAhead = player.inCar && player.car ? 0.3 : 0.12;
-  const targetX = player.x + Math.cos(player.angle) * (player.inCar ? player.car.speed * lookAhead : 0);
-  const targetY = player.y + Math.sin(player.angle) * (player.inCar ? player.car.speed * lookAhead : 0);
+  const ride = player.inCar && player.car ? player.car : player.inBoat && player.boat ? player.boat : null;
+  const lookAhead = ride ? 0.3 : 0.12;
+  const targetX = player.x + Math.cos(player.angle) * (ride ? ride.speed * lookAhead : 0);
+  const targetY = player.y + Math.sin(player.angle) * (ride ? ride.speed * lookAhead : 0);
   state.camera.x += (targetX - state.camera.x) * Math.min(1, 5 * dt);
   state.camera.y += (targetY - state.camera.y) * Math.min(1, 5 * dt);
   state.shake = Math.max(0, state.shake - dt * 26);
@@ -236,6 +258,7 @@ function stepOnFoot(state, input, dt) {
     if (result === 'steal') events |= EVENT_STEAL;
     else if (result === 'crate') events |= EVENT_PICKUP;
     else if (result === 'vault') events |= EVENT_VAULT;
+    else if (result === 'boat') events |= EVENT_PICKUP;
     else if (result === 'enter') events |= EVENT_PICKUP;
   }
   if (input.actions & ACTION_PUNCH_BIT) {
@@ -259,7 +282,19 @@ function stepDriving(state, input, dt) {
   const player = state.player;
   const car = player.car;
 
-  if (input.throttle > 0) {
+  // Handbrake (hold Space while driving) beats the throttle: a hard stop
+  // with tyre smoke and a little slide — the quick way around a corner.
+  if (input.handbrake && Math.abs(car.speed) > 60) {
+    car.speed -= Math.sign(car.speed) * 720 * dt;
+    if (state.rng.chance(0.7)) {
+      state.particles.push({
+        kind: 'smoke',
+        x: car.x - Math.cos(car.angle) * 20, y: car.y - Math.sin(car.angle) * 20,
+        vx: state.rng.range(-20, 20), vy: state.rng.range(-20, 20),
+        life: 0.5, maxLife: 0.5, size: 8, color: '#cfc9bb',
+      });
+    }
+  } else if (input.throttle > 0) {
     car.speed = Math.min(CAR.maxSpeed, car.speed + CAR.accel * dt);
   } else if (input.throttle < 0) {
     if (car.speed > 30) car.speed = Math.max(0, car.speed - CAR.brake * dt);
@@ -391,11 +426,17 @@ export function respawnPlayer(state, reason) {
     player.car.speed = 0;
     player.car.angle = 0;
   }
+  if (player.inBoat && player.boat) {
+    player.boat.inUse = false;
+    player.boat.speed = 0;
+  }
   player.x = home.x;
   player.y = home.y + 40;
   player.hp = PLAYER.maxHealth;
   player.inCar = false;
   player.car = null;
+  player.inBoat = false;
+  player.boat = null;
   player.invuln = 2;
   state.wanted = 0;
   state.police.cars = [];
