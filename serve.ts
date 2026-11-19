@@ -1,49 +1,49 @@
-// Solmar City dev server: serves game/ on http://localhost:8080.
-// Run: node serve.ts   (no dependencies, plain node)
-import { createServer } from 'node:http';
+// serve.ts — tiny static server for local playtesting.
+// Run: node serve.ts  (serves game/ on http://localhost:8080)
+// `/` serves index.html; anything outside game/ (or missing) is a 404.
+// No request logging: the console stays clean for playtest output.
+
+import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { join, extname, normalize } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const GAME_DIR = join(__dirname, 'game');
 const PORT = 8080;
+const ROOT = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 
-const MIME = {
+const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
 };
 
-const server = createServer(async (req, res) => {
+const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', 'http://localhost');
-    let path = decodeURIComponent(url.pathname);
-    if (path === '/') path = '/index.html';
-    const filePath = normalize(join(GAME_DIR, path));
-    // Anything outside game/ is a 404.
-    if (!filePath.startsWith(GAME_DIR)) {
-      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-      res.end('404 not found');
+    let pathname = decodeURIComponent(url.pathname);
+    if (pathname === '/') pathname = '/index.html';
+    const file = resolve(join(ROOT, normalize(pathname)));
+    // Anything outside game/ is a 404 — no directory escape.
+    if (!file.startsWith(ROOT + sep) && file !== ROOT) {
+      res.writeHead(404, { 'cache-control': 'no-store' });
+      res.end('not found');
       return;
     }
-    const data = await readFile(filePath);
-    const ext = extname(filePath).toLowerCase();
+    const body = await readFile(file);
     res.writeHead(200, {
-      'content-type': MIME[ext] || 'application/octet-stream',
+      'content-type': TYPES[extname(file)] || 'application/octet-stream',
       'cache-control': 'no-store',
     });
-    res.end(data);
-  } catch (e) {
-    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-    res.end('404 not found');
+    res.end(body);
+  } catch {
+    res.writeHead(404, { 'cache-control': 'no-store' });
+    res.end('not found');
   }
 });
 

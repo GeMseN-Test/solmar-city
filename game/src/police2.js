@@ -1,11 +1,12 @@
-// Deeper police AI (v2): roadblocks at 3+ stars, helicopter at 4-5.
-// Roadblock cruisers are parked cars pushed into state.police.cars
-// with roadblock: true — stepPolice skips moving them. The heli is
-// visual only: it hovers above the player with a spotlight circle.
-import { clamp } from './util.js';
-import { randRange } from './random.js';
+// police2.js — the deeper police toys: roadblocks at 3+ stars and
+// the police helicopter at 4-5 stars. Roadblock cruisers are parked
+// across the road ahead of the player and pushed into
+// state.police.cars with roadblock: true (stepPolice skips moving
+// them); they are pulled out again below 3 stars. The helicopter
+// just hovers above the player with a spotlight circle on the
+// ground — visual only — and despawns at 0 stars.
 
-const HELI_SPOTLIGHT_R = 130;
+import { clamp, dist } from './util.js';
 
 export function createPolice2() {
   return {
@@ -15,87 +16,111 @@ export function createPolice2() {
   };
 }
 
-// Spotlight circle on the ground under the heli, or null.
+// Spotlight circle under the helicopter, or null with no heli.
 export function heliSpotlight(state) {
   const heli = state.police2 && state.police2.heli;
   if (!heli) return null;
-  return { x: state.player.x, y: state.player.y, r: HELI_SPOTLIGHT_R };
+  return { x: state.player.x, y: state.player.y, r: 130 };
+}
+
+function placeRoadblocks(state) {
+  const player = state.player;
+  const police2 = state.police2;
+  const ahead = player.angle;
+  // Two cruisers side by side across the road, ~260px ahead.
+  const cx = player.x + Math.cos(ahead) * 260;
+  const cy = player.y + Math.sin(ahead) * 260;
+  const side = ahead + Math.PI / 2;
+  const spots = [
+    { x: cx + Math.cos(side) * 30, y: cy + Math.sin(side) * 30 },
+    { x: cx - Math.cos(side) * 30, y: cy - Math.sin(side) * 30 },
+  ];
+  for (const spot of spots) {
+    const car = {
+      kind: 'police',
+      x: clamp(spot.x, 40, 2840),
+      y: clamp(spot.y, 40, 2060),
+      angle: ahead + Math.PI / 2,
+      speed: 0,
+      cruise: 0,
+      color: '#1a1a2e',
+      model: 'police',
+      roadblock: true,
+      ramCooldown: 0,
+    };
+    police2.roadblocks.push(car);
+    if (state.police) state.police.cars.push(car);
+  }
+}
+
+function removeRoadblocks(state) {
+  const police2 = state.police2;
+  if (!police2) return;
+  if (state.police) {
+    state.police.cars = state.police.cars.filter((c) => !c.roadblock);
+  }
+  police2.roadblocks = [];
 }
 
 export function stepPolice2(state, dt) {
-  const p2 = state.police2;
-  const p = state.player;
-  if (!p2 || !p) return;
+  let remaining = dt;
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, 0.05);
+    stepPolice2Once(state, chunk);
+    remaining -= chunk;
+  }
+}
+
+function stepPolice2Once(state, dt) {
+  const step = Math.min(dt, 0.05);
+  const police2 = state.police2;
+  if (!police2) return;
+  const player = state.player;
+  if (!player) return;
   const wanted = state.wanted || 0;
-  p2.roadblockCooldown = Math.max(0, p2.roadblockCooldown - dt);
 
-  // --- Roadblocks at 3+ stars ---
+  if (police2.roadblockCooldown > 0) police2.roadblockCooldown -= step;
+
   if (wanted >= 3) {
-    if (p2.roadblocks.length === 0 && p2.roadblockCooldown <= 0) {
-      // Two parked cruisers across the road ahead of the player.
-      const ahead = p.angle;
-      const ax = Math.cos(ahead);
-      const ay = Math.sin(ahead);
-      // Perpendicular offset so the pair blocks the lane.
-      const px = -ay;
-      const py = ax;
-      const baseX = p.x + ax * 260;
-      const baseY = p.y + ay * 260;
-      const placed = [];
-      for (const side of [-1, 1]) {
-        const car = {
-          kind: 'police',
-          x: clamp(baseX + px * 34 * side, 40, 2840),
-          y: clamp(baseY + py * 34 * side, 40, 2000),
-          angle: ahead + Math.PI / 2,
-          speed: 0,
-          cruise: 0,
-          color: '#1c2733',
-          model: 'cruiser',
-          roadblock: true,
-          ramCooldown: 0,
-        };
-        state.police.cars.push(car);
-        placed.push(car);
+    // Keep exactly two parked cruisers ahead of the player.
+    if (police2.roadblocks.length < 2 && police2.roadblockCooldown <= 0) {
+      placeRoadblocks(state);
+      police2.roadblockCooldown = 4;
+    }
+    // If the player drove far past them, pull them and re-place
+    // ahead on the next cooldown tick.
+    if (police2.roadblocks.length > 0) {
+      const first = police2.roadblocks[0];
+      if (dist(first.x, first.y, player.x, player.y) > 700) {
+        removeRoadblocks(state);
+        police2.roadblockCooldown = 1.5;
       }
-      p2.roadblocks = placed;
-      p2.roadblockCooldown = 6;
     }
-  } else if (p2.roadblocks.length > 0) {
-    // Below 3 stars: pull the roadblock.
-    const set = new Set(p2.roadblocks);
-    state.police.cars = state.police.cars.filter((c) => !set.has(c));
-    p2.roadblocks = [];
+  } else if (police2.roadblocks.length > 0) {
+    removeRoadblocks(state);
   }
 
-  // --- Helicopter at 4-5 stars ---
   if (wanted >= 4) {
-    if (!p2.heli) {
-      p2.heli = { x: p.x, y: p.y - 120, angle: 0, rotor: 0 };
+    if (!police2.heli) {
+      police2.heli = {
+        x: player.x,
+        y: player.y - 120,
+        angle: 0,
+        rotor: 0,
+      };
     }
-    const heli = p2.heli;
-    // Hover above the player with a slight lag and bob.
-    heli.x += (p.x - heli.x) * Math.min(1, 2.2 * dt);
-    heli.y += (p.y - 40 - heli.y) * Math.min(1, 2.2 * dt);
-    heli.angle += dt * 0.8;
-    heli.rotor += dt * 22;
-    // Spotlight follows the player exactly.
-    heli.spotX = p.x;
-    heli.spotY = p.y;
-  } else if (p2.heli) {
-    p2.heli = null;
+    const heli = police2.heli;
+    heli.rotor += step * 22;
+    heli.angle += step * 0.4;
+    // Hover above the player, trailing slightly behind.
+    heli.x += (player.x - heli.x) * Math.min(1, 1.8 * step);
+    heli.y += (player.y - 90 - heli.y) * Math.min(1, 1.8 * step);
+  } else if (wanted === 0 && police2.heli) {
+    police2.heli = null;
+  } else if (wanted < 4 && police2.heli) {
+    // Heat dropped below 4: the heli peels away.
+    police2.heli = null;
   }
-
-  // At 0 stars everything is gone.
-  if (wanted <= 0) {
-    if (p2.roadblocks.length > 0) {
-      const set = new Set(p2.roadblocks);
-      state.police.cars = state.police.cars.filter((c) => !set.has(c));
-      p2.roadblocks = [];
-    }
-    p2.heli = null;
-  }
-  void randRange;
 }
 
 export default createPolice2;

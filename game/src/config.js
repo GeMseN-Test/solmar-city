@@ -1,24 +1,28 @@
-// Solmar City — tuning constants. One place for every magic number
-// the gameplay modules share, so balance tweaks never need a hunt.
+// config.js — every tuning number for Solmar City in one place.
+// Nothing here reads game state; other modules import these values
+// so a balance tweak only ever needs one edit.
 
-export const WORLD = { w: 2880, h: 2160 };
+// The world is 2880 wide, 2160 tall. The sea is the strip at the
+// bottom (y past 2100); the beach is the strip just above it.
 export const WORLD_W = 2880;
 export const WORLD_H = 2160;
-
+export const WORLD_WIDTH = WORLD_W;
+export const WORLD_HEIGHT = WORLD_H;
 export const SEA_TOP = 2100;
 export const BEACH_TOP = 2020;
 
-// Road grid: vertical roads at x = 180 + 360*i, horizontal at y = 180 + 360*j.
+// Streets form a grid: vertical roads at x = 180, 540, ... 2700 and
+// horizontal roads at y = 180, 540, ... 1980. Each road is 76px wide.
+export const GRID_PITCH = 360;
 export const ROAD_X0 = 180;
 export const ROAD_Y0 = 180;
-export const ROAD_STEP = 360;
-export const ROAD_COUNT_X = 8;
-export const ROAD_COUNT_Y = 6;
+export const ROAD_X1 = 2700;
+export const ROAD_Y1 = 1980;
 export const ROAD_WIDTH = 76;
-export const ROAD_X = [180, 540, 900, 1260, 1620, 1980, 2340, 2700];
-export const ROAD_Y = [180, 540, 900, 1260, 1620, 1980];
+export const NODE_COUNT_X = 8;
+export const NODE_COUNT_Y = 6;
 
-// Cars.
+// Cars: how fast they speed up, brake, reverse and turn.
 export const CAR = {
   accel: 640,
   brake: 980,
@@ -33,25 +37,28 @@ export const CAR = {
   ramDamage: 18,
 };
 
-// Player on foot.
+// The player on foot and with the pistol.
 export const PLAYER = {
   walkSpeed: 175,
   runSpeed: 268,
   radius: 11,
+  spawnX: 1420,
+  spawnY: 1230,
+  spawnAngle: -Math.PI / 2,
   maxHp: 100,
   gunDamage: 34,
   gunRange: 520,
   bulletSpeed: 760,
-  punchDamage: 26,
-  punchRange: 36,
-  punchArc: 1.1,
   startAmmo: 48,
   maxAmmo: 240,
   gunCooldown: 0.22,
+  punchDamage: 26,
+  punchRange: 36,
+  punchArc: 1.1,
   punchCooldown: 0.45,
 };
 
-// Wanted level.
+// Wanted stars: what earns them, how they fade, how the bust works.
 export const WANTED = {
   max: 5,
   stealCar: 1,
@@ -64,58 +71,38 @@ export const WANTED = {
   bustSeconds: 1.6,
 };
 
-// Economy / world population.
+// Money and crowds.
 export const MONEY_START = 50;
 export const TRAFFIC_CARS = 16;
 export const PEDESTRIANS = 34;
-export const PICKUPS = { cash: 14, cashValue: 60, health: 8, healthValue: 40, ammo: 8, ammoValue: 36 };
 
-// Save.
+// Pickups scattered around the city: 14 cash ($60 each), 8 health
+// (+40 HP each), 8 ammo (+36 bullets each).
+export const PICKUPS = {
+  cash: { count: 14, value: 60 },
+  health: { count: 8, value: 40 },
+  ammo: { count: 8, value: 36 },
+};
+
+// Local-storage key for the save game.
 export const SAVE_KEY = 'solmar-city-save-v1';
 
-// Spawn.
-export const SPAWN = { x: 1420, y: 1230, angle: -Math.PI / 2 };
-
-// Boats.
-export const BOAT = {
-  seaMinX: 16,
-  seaMaxX: 2864,
-  seaMinY: 2116,
-  seaMaxY: 2144,
-  boardRange: 70,
-  baseTopSpeed: 320,
-  accel: 260,
-  turnRate: 1.6,
-};
-
-// Side jobs.
-export const SIDEJOBS = {
-  coins: 12,
-  coinValue: 25,
-  fareMin: 80,
-  fareMax: 150,
-  farePickupRange: 60,
-  fareTimeLimit: 45,
-  fareCooldown: 20,
-};
-
-// Radio.
-export const RADIO_STATION_COUNT = 5;
-
-export default {
-  WORLD,
+// One object with everything, for callers that prefer a single import.
+export const CONFIG = {
   WORLD_W,
   WORLD_H,
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
   SEA_TOP,
   BEACH_TOP,
+  GRID_PITCH,
   ROAD_X0,
   ROAD_Y0,
-  ROAD_STEP,
-  ROAD_COUNT_X,
-  ROAD_COUNT_Y,
+  ROAD_X1,
+  ROAD_Y1,
   ROAD_WIDTH,
-  ROAD_X,
-  ROAD_Y,
+  NODE_COUNT_X,
+  NODE_COUNT_Y,
   CAR,
   PLAYER,
   WANTED,
@@ -124,8 +111,6 @@ export default {
   PEDESTRIANS,
   PICKUPS,
   SAVE_KEY,
-  SPAWN,
-  BOAT,
-  SIDEJOBS,
-  RADIO_STATION_COUNT,
 };
+
+export default CONFIG;

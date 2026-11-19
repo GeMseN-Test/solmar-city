@@ -1,10 +1,15 @@
-// Save / load for Solmar City (localStorage, one slot).
+// save.js — snapshot the game to localStorage and read it back.
+// The snapshot is plain JSON: seed, money, mission progress, kills,
+// health, ammo, player position and play time. Nothing here touches
+// the DOM except through window.localStorage, and every function is
+// safe to call when there is no window at all (Node smoke tests).
+
 import { SAVE_KEY } from './config.js';
 import { formatMoney, formatTime } from './util.js';
 
-// Snapshot of the fields a save carries. Pure — no window needed.
+// Pull the saveable bits out of a live world state.
 export function saveSnapshot(state) {
-  const p = state.player || {};
+  const player = state.player || {};
   return {
     seed: state.seed,
     money: state.money || 0,
@@ -12,49 +17,46 @@ export function saveSnapshot(state) {
     missionsDone: state.missionsDone || 0,
     storyComplete: !!state.storyComplete,
     kills: state.kills || 0,
-    hp: p.hp != null ? p.hp : 100,
-    ammo: p.ammo != null ? p.ammo : 0,
-    x: p.x || 0,
-    y: p.y || 0,
+    hp: player.hp !== undefined ? player.hp : 100,
+    ammo: player.ammo !== undefined ? player.ammo : 0,
+    x: player.x || 0,
+    y: player.y || 0,
     playTime: state.playTime || 0,
   };
 }
 
-// Apply a loaded snapshot back onto a live state object.
+// Push a loaded snapshot back into a live world state. Fields the
+// save does not carry are left alone.
 export function applySave(state, save) {
-  if (!save) return false;
-  state.money = save.money || 0;
-  state.missionIndex = save.missionIndex || 0;
-  state.missionsDone = save.missionsDone || 0;
-  state.storyComplete = !!save.storyComplete;
-  state.kills = save.kills || 0;
-  state.playTime = save.playTime || 0;
+  if (!save) return state;
+  if (save.money !== undefined) state.money = save.money;
+  if (save.missionIndex !== undefined) state.missionIndex = save.missionIndex;
+  if (save.missionsDone !== undefined) state.missionsDone = save.missionsDone;
+  if (save.storyComplete !== undefined) state.storyComplete = save.storyComplete;
+  if (save.kills !== undefined) state.kills = save.kills;
+  if (save.playTime !== undefined) state.playTime = save.playTime;
   if (state.player) {
-    state.player.hp = save.hp != null ? save.hp : 100;
-    state.player.ammo = save.ammo != null ? save.ammo : 0;
-    if (save.x != null) state.player.x = save.x;
-    if (save.y != null) state.player.y = save.y;
-    state.player.inCar = false;
-    state.player.car = null;
-    state.player.inBoat = false;
-    state.player.boat = null;
+    if (save.hp !== undefined) state.player.hp = save.hp;
+    if (save.ammo !== undefined) state.player.ammo = save.ammo;
+    if (save.x !== undefined) state.player.x = save.x;
+    if (save.y !== undefined) state.player.y = save.y;
   }
-  return true;
+  return state;
 }
 
-// Write the current state to localStorage. Returns true on success.
+// Write the current state under SAVE_KEY. Returns true on success,
+// false when there is no window/storage or the write throws.
 export function saveGame(state) {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return false;
-    const snap = saveSnapshot(state);
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(snap));
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(saveSnapshot(state)));
     return true;
-  } catch (e) {
+  } catch (err) {
     return false;
   }
 }
 
-// Read the save slot. Returns the save object, or null when empty/bad.
+// Read the save back, or null when there is none / it is corrupt.
 export function loadSave() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null;
@@ -63,33 +65,30 @@ export function loadSave() {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
     return parsed;
-  } catch (e) {
+  } catch (err) {
     return null;
   }
 }
 
-// Delete the save slot. Returns true when it ran.
+// Delete the save. Returns true when a save was removed.
 export function clearSave() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return false;
     window.localStorage.removeItem(SAVE_KEY);
     return true;
-  } catch (e) {
+  } catch (err) {
     return false;
   }
 }
 
-// One-line summary for the Continue button:
-// "$1,234  •  3 missions done  •  2:05 played"
+// One line for the Continue button: "$1,234  •  3 missions done  •
+// 2:05 played". Empty string when there is no save.
 export function saveInfoText(save) {
   if (!save) return '';
-  const money = '$' + formatMoney(save.money || 0);
-  const missions = (save.missionsDone || 0) + ' mission' + ((save.missionsDone || 0) === 1 ? '' : 's') + ' done';
-  const played = formatTime(save.playTime || 0) + ' played';
-  return money + '  •  ' + missions + '  •  ' + played;
+  const money = formatMoney(save.money || 0);
+  const done = save.missionsDone || 0;
+  const played = formatTime(save.playTime || 0);
+  return money + '  •  ' + done + ' missions done  •  ' + played + ' played';
 }
 
-// True when a save slot exists.
-export function hasSave() {
-  return loadSave() !== null;
-}
+export default saveGame;

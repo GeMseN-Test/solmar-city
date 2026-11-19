@@ -1,86 +1,84 @@
-// General helpers for Solmar City.
-// NOTE: pick / randRange / randInt live in random.js, not here.
+// util.js — tiny math + formatting helpers shared by every module.
+// No game state lives here, just pure functions.
 
-// Clamp a value into [min, max].
+// Keep a number between min and max.
 export function clamp(v, min, max) {
   if (v < min) return min;
   if (v > max) return max;
   return v;
 }
 
-// Linear interpolation between a and b.
+// Slide from a to b by t (t = 0 gives a, t = 1 gives b).
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-// Euclidean distance between two points.
+// Straight-line distance between two points.
 export function dist(x1, y1, x2, y2) {
   const dx = x2 - x1;
   const dy = y2 - y1;
-  return Math.hypot(dx, dy);
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
-// Squared distance (cheaper when only comparing).
-export function distSq(x1, y1, x2, y2) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  return dx * dx + dy * dy;
+// Distance between two objects that both have x and y.
+export function distTo(a, b) {
+  return dist(a.x, a.y, b.x, b.y);
 }
 
-// Smallest signed angle difference from a to b, in [-PI, PI].
+// Angle (radians) from point a to point b.
+export function angleTo(ax, ay, bx, by) {
+  return Math.atan2(by - ay, bx - ax);
+}
+
+// Smallest signed turn from angle a to angle b, in (-PI, PI].
 export function angleDiff(a, b) {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d <= -Math.PI) d += Math.PI * 2;
   return d;
 }
 
-// Turn `angle` toward `target` by at most `maxStep` radians.
-export function turnToward(angle, target, maxStep) {
-  const d = angleDiff(angle, target);
-  if (Math.abs(d) <= maxStep) return target;
-  return angle + Math.sign(d) * maxStep;
-}
-
-// Normalize an angle into [-PI, PI].
-export function wrapAngle(a) {
+// Wrap any angle into (-PI, PI].
+export function normalizeAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
-  while (a < -Math.PI) a += Math.PI * 2;
+  while (a <= -Math.PI) a += Math.PI * 2;
   return a;
 }
 
-// Angle from (x1,y1) to (x2,y2).
-export function angleTo(x1, y1, x2, y2) {
-  return Math.atan2(y2 - y1, x2 - x1);
+// Move angle `from` toward angle `to` by at most `maxStep` radians.
+export function turnToward(from, to, maxStep) {
+  const d = angleDiff(from, to);
+  if (d > maxStep) return from + maxStep;
+  if (d < -maxStep) return from - maxStep;
+  return to;
 }
 
-// Format an integer with thousands separators: 1234 -> "1,234".
+// Money as "$1,234" — thousands separators, no decimals.
 export function formatMoney(n) {
-  const v = Math.round(n);
-  return v.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const v = Math.floor(n);
+  return '$' + v.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-// Format seconds as m:ss — 125 -> "2:05".
+// Seconds as "2:05" (minutes:seconds, zero-padded seconds).
 export function formatTime(seconds) {
-  const s = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(s / 60);
-  const rest = s % 60;
-  return m + ':' + String(rest).padStart(2, '0');
+  const total = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m + ':' + (s < 10 ? '0' + s : '' + s);
 }
 
-// Move a point (x,y) by `len` along `angle`.
-export function moveAlong(x, y, angle, len) {
-  return { x: x + Math.cos(angle) * len, y: y + Math.sin(angle) * len };
-}
-
-// True when point (x,y) lies inside the axis-aligned rect.
-export function pointInRect(x, y, rx, ry, rw, rh) {
-  return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
-}
-
-// True when point (x,y) lies inside the circle at (cx,cy) radius r.
-export function pointInCircle(x, y, cx, cy, r) {
+// True when point (x, y) sits inside the circle around (cx, cy).
+export function inCircle(x, y, cx, cy, r) {
   const dx = x - cx;
   const dy = y - cy;
   return dx * dx + dy * dy <= r * r;
 }
+
+// Pick a random point on a circle of radius r around (cx, cy).
+// rng is any function returning [0, 1).
+export function randomPointOnCircle(rng, cx, cy, r) {
+  const a = rng() * Math.PI * 2;
+  return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+}
+
+export default clamp;

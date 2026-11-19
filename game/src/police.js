@@ -1,167 +1,175 @@
-// Standard police: cruisers + foot cops. They chase the player when
-// wanted, ram the player's car, and bust the player on foot after
-// holding them close for bustSeconds. Roadblock cars (roadblock: true)
-// are parked — stepPolice never moves them; police2 owns them.
-import { WANTED, CAR } from './config.js';
-import { clamp, dist, angleDiff, turnToward } from './util.js';
-import { randRange, pick } from './random.js';
+// police.js — the wanted system: cruisers that chase and ram,
+// foot cops, the bust, and the slow fade of stars once the player
+// stays out of trouble. Wanted level itself lives on state.wanted
+// (the world owns it); this module reads it, spawns the right
+// number of cruisers, and decays it after a quiet spell.
 
-const COP_SKINS = ['#e8b98a', '#c98d5f', '#8a5a3b'];
+import { WANTED, CAR } from './config.js';
+import { clamp, dist } from './util.js';
 
 export function createPolice() {
   return {
     cars: [],
     cops: [],
     bustTimer: 0,
-    siren: false,
+    spawnTimer: 0,
+    quietTimer: 0,
+    decayTimer: 0,
+    lastWanted: 0,
   };
 }
 
-export function createPoliceState() {
-  return createPolice();
+// Add stars (clamped to the max of 5). Returns the new level.
+export function addWanted(state, n) {
+  state.wanted = clamp((state.wanted || 0) + n, 0, WANTED.max);
+  if (state.police) {
+    state.police.quietTimer = 0;
+    state.police.decayTimer = 0;
+  }
+  return state.wanted;
 }
 
-function spawnCruiser(state, x, y) {
+export function clearWanted(state) {
+  state.wanted = 0;
+  if (state.police) {
+    state.police.bustTimer = 0;
+    state.police.quietTimer = 0;
+    state.police.decayTimer = 0;
+  }
+}
+
+function spawnCruiser(state, rng) {
+  const player = state.player;
+  const angle = rng ? rng() * Math.PI * 2 : Math.random() * Math.PI * 2;
+  const radius = 520 + (rng ? rng() * 260 : Math.random() * 260);
   const car = {
     kind: 'police',
-    x,
-    y,
-    angle: 0,
+    x: clamp(player.x + Math.cos(angle) * radius, 40, 2840),
+    y: clamp(player.y + Math.sin(angle) * radius, 40, 2060),
+    angle: Math.atan2(player.y - (player.y + Math.sin(angle) * radius), player.x - (player.x + Math.cos(angle) * radius)),
     speed: 0,
-    cruise: 430,
-    color: '#1c2733',
-    model: 'cruiser',
+    cruise: 420,
+    color: '#1a1a2e',
+    model: 'police',
     roadblock: false,
     ramCooldown: 0,
   };
-  state.police.cars.push(car);
+  car.angle = Math.atan2(player.y - car.y, player.x - car.x);
   return car;
 }
 
-function spawnCop(state, x, y) {
-  const cop = {
-    x,
-    y,
-    angle: 0,
-    speed: 165,
-    skin: pick(state.rng || Math.random, COP_SKINS),
-    bustHold: 0,
-  };
-  state.police.cops.push(cop);
-  return cop;
-}
-
-// Keep the number of police units roughly matched to the wanted level.
-function ensureUnits(state) {
-  const wanted = state.wanted || 0;
-  const p = state.player;
-  if (!p) return;
-  const wantCruisers = wanted >= 1 ? Math.min(3, 1 + Math.floor(wanted / 2)) : 0;
-  const wantCops = wanted >= 1 ? Math.min(4, wanted) : 0;
-  const liveCruisers = state.police.cars.filter((c) => !c.roadblock);
-  while (liveCruisers.length < wantCruisers) {
-    const a = randRange(state.rng || Math.random, 0, Math.PI * 2);
-    const r = randRange(state.rng || Math.random, 420, 620);
-    const car = spawnCruiser(state, clamp(p.x + Math.cos(a) * r, 40, 2840), clamp(p.y + Math.sin(a) * r, 40, 2000));
-    liveCruisers.push(car);
-  }
-  while (state.police.cops.length < wantCops) {
-    const a = randRange(state.rng || Math.random, 0, Math.PI * 2);
-    const r = randRange(state.rng || Math.random, 160, 320);
-    spawnCop(state, clamp(p.x + Math.cos(a) * r, 40, 2840), clamp(p.y + Math.sin(a) * r, 40, 2000));
-  }
-}
-
-// One police frame. Returns nothing; sets state.busted when caught.
+// One police frame. Returns nothing; the world reads events off
+// state (busted is signalled by state.busted / the BUSTED bit the
+// world sets when bustTimer passes bustSeconds).
 export function stepPolice(state, dt) {
+  let remaining = dt;
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, 0.05);
+    stepPoliceOnce(state, chunk);
+    remaining -= chunk;
+  }
+}
+
+function stepPoliceOnce(state, dt) {
+  const step = Math.min(dt, 0.05);
   const police = state.police;
-  const p = state.player;
-  if (!police || !p) return;
+  if (!police) return;
+  const player = state.player;
+  if (!player) return;
   const wanted = state.wanted || 0;
 
+  // Wanted decay lives in ONE place only: world.stepWanted (world.js).
+  // This module only READS state.wanted — it must never decrement it,
+  // or stars would melt twice as fast (double decay).
+  police.lastWanted = wanted;
   if (wanted <= 0) {
-    // Stand down: cruisers slow to a stop, cops wander off.
-    for (const car of police.cars) {
-      if (car.roadblock) continue;
-      car.speed = Math.max(0, car.speed - 300 * dt);
-      car.x += Math.cos(car.angle) * car.speed * dt;
-      car.y += Math.sin(car.angle) * car.speed * dt;
-    }
-    police.cops.length = 0;
-    police.bustTimer = 0;
-    police.siren = false;
-    return;
+    police.quietTimer = 0;
+    police.decayTimer = 0;
   }
 
-  ensureUnits(state);
-  police.siren = true;
-  const rng = state.rng || Math.random;
+  // Keep one cruiser per star on the road (roadblock cruisers,
+  // owned by police2, count toward the total too).
+  const cruising = police.cars.filter((c) => !c.roadblock);
+  const target = wanted;
+  police.spawnTimer -= step;
+  if (cruising.length < target && police.spawnTimer <= 0) {
+    police.spawnTimer = 1.2;
+    const rng = state.rng;
+    police.cars.push(spawnCruiser(state, rng));
+  }
+  if (wanted === 0) {
+    // No heat: cruisers peel off and despawn once they are far.
+    for (let i = police.cars.length - 1; i >= 0; i--) {
+      const car = police.cars[i];
+      if (car.roadblock) continue;
+      const d = dist(car.x, car.y, player.x, player.y);
+      if (d > 1100) police.cars.splice(i, 1);
+    }
+  }
 
-  // --- Cruisers chase and ram ---
+  // Chase: steer at the player, ram on contact, and start the bust
+  // clock when a cruiser sits on top of the player.
+  let touching = false;
   for (const car of police.cars) {
-    if (car.roadblock) continue; // parked roadblock, owned by police2
-    car.ramCooldown = Math.max(0, car.ramCooldown - dt);
-    const d = dist(car.x, car.y, p.x, p.y);
-    const want = Math.atan2(p.y - car.y, p.x - car.x);
-    // Lead the player slightly when they are moving fast.
-    const lead = p.inCar && p.car ? 0.35 : 0;
-    const aim = want + angleDiff(want, Math.atan2(p.y + Math.sin(p.angle) * 80 * lead - car.y, p.x + Math.cos(p.angle) * 80 * lead - car.x)) * 0;
-    void aim;
-    car.angle = turnToward(car.angle, want, 2.4 * dt);
-    const targetSpeed = d > 900 ? car.cruise * 1.05 : car.cruise;
-    car.speed += (targetSpeed - car.speed) * Math.min(1, 1.4 * dt);
-    car.x += Math.cos(car.angle) * car.speed * dt;
-    car.y += Math.sin(car.angle) * car.speed * dt;
-    if (state.city) state.city.resolveCircle(car, 20);
-
-    // Ram: bump the player's car / hurt the player on foot.
-    if (d < 52 && car.ramCooldown <= 0) {
-      car.ramCooldown = 0.9;
-      if (p.inCar && p.car) {
-        p.car.speed *= 0.55;
-        p.car.x += Math.cos(car.angle) * 26;
-        p.car.y += Math.sin(car.angle) * 26;
-        state.crashEvent = (state.crashEvent || 0) + 1;
-      } else {
-        p.hp -= CAR.ramDamage;
-        p.x += Math.cos(car.angle) * 30;
-        p.y += Math.sin(car.angle) * 30;
+    if (car.roadblock) continue; // parked roadblocks never move.
+    if (car.ramCooldown > 0) car.ramCooldown -= step;
+    const d = dist(car.x, car.y, player.x, player.y);
+    if (d < WANTED.copChaseRadius || wanted > 0) {
+      const targetAngle = Math.atan2(player.y - car.y, player.x - car.x);
+      let diff = targetAngle - car.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      car.angle += clamp(diff, -2.6 * step, 2.6 * step);
+      car.speed += (car.cruise - car.speed) * Math.min(1, 1.4 * step);
+    } else {
+      car.speed += (0 - car.speed) * Math.min(1, 1.4 * step);
+    }
+    car.x += Math.cos(car.angle) * car.speed * step;
+    car.y += Math.sin(car.angle) * car.speed * step;
+    car.x = clamp(car.x, 16, 2864);
+    car.y = clamp(car.y, 16, 2096);
+    if (d < 34) {
+      touching = true;
+      if (car.ramCooldown <= 0 && player.hp > 0 && (!player.invuln || player.invuln <= 0)) {
+        car.ramCooldown = 1.0;
+        player.hp -= CAR.ramDamage;
+        if (state.audio) state.audio.crash(0.7);
       }
     }
   }
 
-  // --- Foot cops chase and bust ---
-  let nearestCopD = Infinity;
-  for (const cop of police.cops) {
-    const d = dist(cop.x, cop.y, p.x, p.y);
-    nearestCopD = Math.min(nearestCopD, d);
-    const want = Math.atan2(p.y - cop.y, p.x - cop.x);
-    cop.angle = turnToward(cop.angle, want, 6 * dt);
-    const spd = cop.speed * (p.inCar ? 1 : 1);
-    if (d > 26) {
-      cop.x += Math.cos(cop.angle) * spd * dt;
-      cop.y += Math.sin(cop.angle) * spd * dt;
-    }
-    if (state.city) state.city.resolveCircle(cop, 10);
-  }
-
-  // Bust: a cop must hold the player close on foot for bustSeconds.
-  if (!p.inCar && !p.inBoat && nearestCopD < 34) {
-    police.bustTimer += dt;
+  // Bust: a cruiser parked on the player for bustSeconds ends the run.
+  if (touching && wanted > 0 && player.hp > 0) {
+    police.bustTimer += step;
     if (police.bustTimer >= WANTED.bustSeconds) {
-      state.busted = true;
       police.bustTimer = 0;
+      state.busted = true;
     }
   } else {
-    police.bustTimer = Math.max(0, police.bustTimer - dt * 2);
+    police.bustTimer = 0;
   }
 
-  // Prune cruisers that fell far behind (keeps the chase tight).
-  if (police.cars.length > 6) {
-    police.cars = police.cars.filter((c) => c.roadblock || dist(c.x, c.y, p.x, p.y) < 1400);
-    state.police.cars = police.cars;
+  // Foot cops: one per two stars, they shuffle toward the player
+  // on foot and give up beyond chase range. Kept small on purpose.
+  const wantCops = Math.floor(wanted / 2);
+  while (police.cops.length < wantCops) {
+    const a = Math.random() * Math.PI * 2;
+    police.cops.push({
+      x: clamp(player.x + Math.cos(a) * 420, 40, 2840),
+      y: clamp(player.y + Math.sin(a) * 420, 40, 2060),
+      angle: a,
+      speed: 150,
+    });
   }
-  void rng;
+  while (police.cops.length > wantCops) police.cops.pop();
+  for (const cop of police.cops) {
+    const d = dist(cop.x, cop.y, player.x, player.y);
+    if (d > WANTED.copChaseRadius) continue;
+    const a = Math.atan2(player.y - cop.y, player.x - cop.x);
+    cop.angle = a;
+    cop.x += Math.cos(a) * cop.speed * step;
+    cop.y += Math.sin(a) * cop.speed * step;
+  }
 }
 
 export default createPolice;

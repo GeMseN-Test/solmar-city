@@ -1,59 +1,43 @@
-// missions4.js — Story missions M11–M12 (attempt 3): the finale.
-//
-// M11 "Midnight Run" ($3,000): reach the docks, defeat 4 Harbor Rats
-// who spawn at the docks, reach the marina, board a boat, cross to
-// Gull Island.
-// M12 "The Solmar Crown" ($10,000): reach the bank, grab the vault
-// (4 stars), defeat 6 guards who spawn at the bank, escape to the
-// safehouse, then reach the garage. The story ends here —
-// storyComplete becomes true when M12 pays out.
-//
-// Both missions use only proven objective kinds: reach / defeat /
-// board / interact / escape. The defeat gang spawns around the
-// mission's first reach landmark via the shared helper. Note M12's
-// defeat objective comes AFTER the vault grab: updateMission spawns
-// the gang when the defeat objective becomes current.
+// missions4.js — story missions M11–M12 (the attempt-3 batch).
+// The last two jobs. M12 pays $10,000 and ends the story: after it,
+// storyComplete is true and Mara free-roams Solmar City.
+// Same pattern as missions2/3.js: append to MISSIONS, idempotent, only
+// proven objective kinds (reach / defeat / board / interact / escape).
 
-import { MISSIONS, spawnDefeatGang } from './missions.js';
+import { MISSIONS } from './missions.js';
 
-const FINAL_MISSIONS = [
+const EXTRA = [
   {
-    id: 'midnight-run',
+    id: 'm11-midnight-run',
     title: 'Midnight Run',
-    briefing: 'One more island run, and this time the Rats are waiting. Clear the docks and sail out under the moon.',
+    briefing: 'One more night at the Docks. Clear the Rats, run the boat out to the island, and be gone before dawn.',
     reward: 3000,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Reach the Solmar Docks' },
+      { kind: 'reach', key: 'docks', text: 'Go to the Solmar Docks' },
       { kind: 'defeat', count: 4, text: 'Defeat 4 Harbor Rats' },
-      { kind: 'reach', key: 'marina', text: 'Reach the Solmar Marina' },
-      { kind: 'board', text: 'Board a boat' },
-      { kind: 'reach', key: 'island', text: 'Reach Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Go to the Solmar Marina' },
+      { kind: 'board', text: 'Board a boat (walk up to one and press E)' },
+      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
     ],
   },
   {
-    id: 'solmar-crown',
+    id: 'm12-solmar-crown',
     title: 'The Solmar Crown',
-    briefing: 'The crown job. Empty the bank, drop six guards, lose the city, and park the getaway car at Ray\'s. Do this and Solmar is yours.',
+    briefing: 'The crown job. Hit the bank, drop six guards, lose the whole city, and park it at Ray\u2019s. After this, Solmar is yours.',
     reward: 10000,
     objectives: [
-      { kind: 'reach', key: 'bank', text: 'Reach the Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault' },
+      { kind: 'reach', key: 'bank', text: 'Go to the Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
       { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
-      { kind: 'escape', key: 'safehouse', text: "Escape to Mara's Safehouse" },
-      { kind: 'reach', key: 'garage', text: "Reach Ray's Garage" },
+      { kind: 'escape', key: 'safehouse', text: 'Escape to the Safehouse' },
+      { kind: 'reach', key: 'garage', text: 'Park it at Ray\u2019s Garage' },
     ],
   },
 ];
 
-// Idempotent: safe to call twice, the missions are appended once.
-export function registerFinalMissions() {
-  for (const def of FINAL_MISSIONS) {
+export function registerMissions4() {
+  for (const def of EXTRA) {
     if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
   }
-}
-
-// Gang spawn for a final mission (M11: 4 at the docks; M12: 6 at the
-// bank). Guarded — never spawns twice for the same mission run.
-export function setupFinalMission(state, def) {
-  spawnDefeatGang(state, def);
+  return MISSIONS.length;
 }

@@ -1,40 +1,61 @@
-// Traffic: cars driving the road grid + pedestrians on the sidewalks.
-// Cars follow node-to-node routes; peds wander between street points.
+// traffic.js — the other cars on the road and the people on the
+// sidewalks. Traffic cars drive from intersection to intersection
+// along the street grid; pedestrians stroll to a target, wait a
+// while, then stroll somewhere else — and panic-run when a car
+// (or the player) comes at them.
+
 import { TRAFFIC_CARS, PEDESTRIANS } from './config.js';
-import { clamp, dist, turnToward } from './util.js';
-import { randRange, randInt, pick } from './random.js';
+import { clamp, dist } from './util.js';
+import { randRange, pick } from './random.js';
 
 export const CAR_MODELS = ['sedan', 'van', 'taxi', 'truck', 'sport'];
-const CAR_COLORS = ['#c0392b', '#2980b9', '#27ae60', '#f39c12', '#8e44ad', '#7f8c8d', '#d35400', '#16a085'];
-const PED_SHIRTS = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c', '#ecf0f1'];
-const PED_SKINS = ['#e8b98a', '#c98d5f', '#8a5a3b', '#f0c8a0', '#a06a42'];
+
+const CAR_COLORS = [
+  '#c23b2e', '#2e6dc2', '#e8c832', '#3aa655', '#e8e8e8',
+  '#7a4fd0', '#d06a2e', '#3aa6a0', '#b8b8b8', '#222831',
+];
+const SHIRTS = [
+  '#e8e8e8', '#3a6dc2', '#c23b2e', '#3aa655', '#e8c832',
+  '#7a4fd0', '#d06a2e', '#8a8a8a', '#2a9d8f', '#e76f51',
+];
+const SKIN_TONES = ['#e8b98a', '#c98d5f', '#8a5a33', '#f0c8a0', '#a06a42'];
+
+function randomNode(rng, city) {
+  return {
+    ix: Math.floor(rng() * city.nodeCountX),
+    iy: Math.floor(rng() * city.nodeCountY),
+  };
+}
 
 export function createTraffic(rng, city) {
   const cars = [];
   for (let i = 0; i < TRAFFIC_CARS; i++) {
-    const ix = randInt(rng, 0, city.nodeCountX - 1);
-    const iy = randInt(rng, 0, city.nodeCountY - 1);
-    const from = { ix, iy };
-    const next = pickNextNode(rng, city, ix, iy);
-    const a = city.nodePoint(ix, iy);
-    const b = city.nodePoint(next.ix, next.iy);
+    const from = randomNode(rng, city);
+    let next = randomNode(rng, city);
+    while (next.ix === from.ix && next.iy === from.iy) {
+      next = randomNode(rng, city);
+    }
+    const fromPt = city.nodePoint(from.ix, from.iy);
     const model = pick(rng, CAR_MODELS);
+    const cruise = model === 'sport' ? randRange(rng, 200, 260)
+      : model === 'truck' ? randRange(rng, 110, 150)
+      : randRange(rng, 140, 200);
     cars.push({
       kind: 'traffic',
-      x: a.x + randRange(rng, -10, 10),
-      y: a.y + randRange(rng, -10, 10),
-      angle: Math.atan2(b.y - a.y, b.x - a.x),
+      x: fromPt.x + randRange(rng, -20, 20),
+      y: fromPt.y + randRange(rng, -20, 20),
+      angle: randRange(rng, 0, Math.PI * 2),
       speed: 0,
-      cruise: randRange(rng, 110, 190) * (model === 'sport' ? 1.25 : model === 'truck' ? 0.8 : 1),
-      color: model === 'taxi' ? '#f5c518' : pick(rng, CAR_COLORS),
+      cruise,
+      color: model === 'taxi' ? '#e8c832' : pick(rng, CAR_COLORS),
       model,
-      ix,
-      iy,
+      ix: from.ix,
+      iy: from.iy,
       fromIx: from.ix,
       fromIy: from.iy,
       nextIx: next.ix,
       nextIy: next.iy,
-      wait: 0,
+      wait: randRange(rng, 0, 1.5),
       wobble: randRange(rng, 0, Math.PI * 2),
     });
   }
@@ -44,15 +65,15 @@ export function createTraffic(rng, city) {
     const pt = city.randomStreetPoint(rng);
     const target = city.randomStreetPoint(rng);
     peds.push({
-      x: pt.x + randRange(rng, -24, 24),
-      y: pt.y + randRange(rng, -24, 24),
+      x: pt.x + randRange(rng, -30, 30),
+      y: pt.y + randRange(rng, -30, 30),
       angle: randRange(rng, 0, Math.PI * 2),
-      speed: randRange(rng, 32, 62),
-      shirt: pick(rng, PED_SHIRTS),
-      skin: pick(rng, PED_SKINS),
+      speed: randRange(rng, 28, 55),
+      shirt: pick(rng, SHIRTS),
+      skin: pick(rng, SKIN_TONES),
       targetX: target.x,
       targetY: target.y,
-      wait: randRange(rng, 0, 2),
+      wait: randRange(rng, 0, 3),
       down: false,
       panic: 0,
       stepPhase: randRange(rng, 0, Math.PI * 2),
@@ -62,84 +83,100 @@ export function createTraffic(rng, city) {
   return { cars, peds };
 }
 
-function pickNextNode(rng, city, ix, iy) {
-  const options = city.nodeNeighbours(ix, iy);
-  return pick(rng, options);
-}
-
-// Advance traffic one frame. `traffic` is the object from createTraffic.
-export function stepTraffic(traffic, city, rng, dt) {
-  for (const car of traffic.cars) {
-    // At an intersection: pick the next leg (never U-turn if avoidable).
-    const target = city.nodePoint(car.nextIx, car.nextIy);
-    const d = dist(car.x, car.y, target.x, target.y);
-    if (d < 14) {
-      car.ix = car.nextIx;
-      car.iy = car.nextIy;
-      const options = city.nodeNeighbours(car.ix, car.iy).filter(
-        (n) => !(n.ix === car.fromIx && n.iy === car.fromIy),
-      );
-      const next = options.length > 0 ? pick(rng, options) : pick(rng, city.nodeNeighbours(car.ix, car.iy));
-      car.fromIx = car.ix;
-      car.fromIy = car.iy;
-      car.nextIx = next.ix;
-      car.nextIy = next.iy;
-      car.x = target.x;
-      car.y = target.y;
-    }
-    const dest = city.nodePoint(car.nextIx, car.nextIy);
-    const want = Math.atan2(dest.y - car.y, dest.x - car.x);
-    car.angle = turnToward(car.angle, want, 2.2 * dt);
-    // Ease up to cruise speed, with a little wobble so cars feel alive.
-    car.speed += (car.cruise - car.speed) * Math.min(1, 1.2 * dt);
-    car.wobble += dt * 2;
-    const wob = Math.sin(car.wobble) * 0.04;
-    car.x += Math.cos(car.angle + wob) * car.speed * dt;
-    car.y += Math.sin(car.angle + wob) * car.speed * dt;
-  }
-
-  for (const ped of traffic.peds) {
-    if (ped.down) continue;
-    if (ped.panic > 0) {
-      ped.panic -= dt;
-      ped.x += Math.cos(ped.angle) * ped.speed * 2.4 * dt;
-      ped.y += Math.sin(ped.angle) * ped.speed * 2.4 * dt;
-      ped.stepPhase += dt * 14;
-      continue;
-    }
-    if (ped.wait > 0) {
-      ped.wait -= dt;
-      continue;
-    }
-    const d = dist(ped.x, ped.y, ped.targetX, ped.targetY);
-    if (d < 10) {
-      const t = city.randomStreetPoint(rng);
-      ped.targetX = t.x + randRange(rng, -24, 24);
-      ped.targetY = t.y + randRange(rng, -24, 24);
-      ped.wait = randRange(rng, 0.5, 3);
-      continue;
-    }
-    const want = Math.atan2(ped.targetY - ped.y, ped.targetX - ped.x);
-    ped.angle = turnToward(ped.angle, want, 6 * dt);
-    ped.x += Math.cos(ped.angle) * ped.speed * dt;
-    ped.y += Math.sin(ped.angle) * ped.speed * dt;
-    ped.stepPhase += dt * 8;
-    if (city) city.resolveCircle(ped, 8);
-  }
-}
-
 // Nearest traffic car within maxDist of (x, y), or null.
 export function nearestTrafficCar(traffic, x, y, maxDist) {
+  const cars = traffic.cars || [];
   let best = null;
-  let bestD = maxDist == null ? Infinity : maxDist;
-  for (const car of traffic.cars) {
-    const d = dist(car.x, car.y, x, y);
+  let bestD = maxDist !== undefined ? maxDist : 90;
+  for (const car of cars) {
+    const d = dist(x, y, car.x, car.y);
     if (d < bestD) {
       bestD = d;
       best = car;
     }
   }
   return best;
+}
+
+function pickNextNode(rng, city, car) {
+  const options = city.nodeNeighbours(car.nextIx, car.nextIy);
+  // Prefer not to U-turn straight back where we came from.
+  const forward = options.filter((n) => !(n.ix === car.fromIx && n.iy === car.fromIy));
+  const choice = pick(rng, forward.length ? forward : options) || options[0];
+  car.fromIx = car.nextIx;
+  car.fromIy = car.nextIy;
+  car.nextIx = choice.ix;
+  car.nextIy = choice.iy;
+}
+
+export function stepTraffic(traffic, city, rng, dt) {
+  let remaining = dt;
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, 0.05);
+    stepTrafficOnce(traffic, city, rng, chunk);
+    remaining -= chunk;
+  }
+}
+
+function stepTrafficOnce(traffic, city, rng, dt) {
+  const step = Math.min(dt, 0.05);
+  for (const car of traffic.cars) {
+    if (car.wait > 0) {
+      car.wait -= step;
+      car.speed = Math.max(0, car.speed - 300 * step);
+      continue;
+    }
+    const dest = city.nodePoint(car.nextIx, car.nextIy);
+    const d = dist(car.x, car.y, dest.x, dest.y);
+    if (d < 14) {
+      // Reached the intersection: pause briefly, then pick a road.
+      car.ix = car.nextIx;
+      car.iy = car.nextIy;
+      pickNextNode(rng, city, car);
+      if (rng() < 0.3) car.wait = randRange(rng, 0.4, 1.6);
+      continue;
+    }
+    const targetAngle = Math.atan2(dest.y - car.y, dest.x - car.x);
+    let diff = targetAngle - car.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    car.angle += clamp(diff, -2.2 * step, 2.2 * step);
+    car.speed += (car.cruise - car.speed) * Math.min(1, 1.6 * step);
+    car.x += Math.cos(car.angle) * car.speed * step;
+    car.y += Math.sin(car.angle) * car.speed * step;
+    car.wobble += step * 2;
+  }
+
+  for (const ped of traffic.peds) {
+    if (ped.down) continue;
+    if (ped.panic > 0) {
+      ped.panic -= step;
+      ped.x += Math.cos(ped.angle) * 150 * step;
+      ped.y += Math.sin(ped.angle) * 150 * step;
+      ped.stepPhase += step * 14;
+      continue;
+    }
+    if (ped.wait > 0) {
+      ped.wait -= step;
+      continue;
+    }
+    const d = dist(ped.x, ped.y, ped.targetX, ped.targetY);
+    if (d < 16) {
+      const target = city.randomStreetPoint(rng);
+      ped.targetX = target.x;
+      ped.targetY = target.y;
+      ped.wait = randRange(rng, 1, 5);
+      continue;
+    }
+    const targetAngle = Math.atan2(ped.targetY - ped.y, ped.targetX - ped.x);
+    ped.angle = targetAngle;
+    ped.x += Math.cos(targetAngle) * ped.speed * step;
+    ped.y += Math.sin(targetAngle) * ped.speed * step;
+    ped.stepPhase += step * 7;
+    if (city && city.resolveCircle) city.resolveCircle(ped, 8);
+    ped.x = clamp(ped.x, 16, 2864);
+    ped.y = clamp(ped.y, 16, 2096);
+  }
 }
 
 export default createTraffic;
