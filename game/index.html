@@ -11,40 +11,30 @@
     background: #0b0e14;
     color: #e8e8e8;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    min-height: 100%;
   }
   body {
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: 16px;
-    box-sizing: border-box;
   }
-  #game {
+  canvas {
     display: block;
-    width: min(1280px, 96vw);
-    height: auto;
-    background: #101623;
-    border: 1px solid #2a3345;
-    border-radius: 8px;
-    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+    background: #10141d;
+    border: 1px solid #26303f;
+    max-width: 96vw;
+    max-height: 86vh;
   }
-  .hint {
-    font-size: 14px;
-    color: #9aa7bd;
-    text-align: center;
-    line-height: 1.6;
-    max-width: 1280px;
-  }
-  .hint b { color: #e8e8e8; }
+  p { margin: 0; font-size: 14px; opacity: 0.85; text-align: center; }
+  .hint { font-size: 12px; opacity: 0.55; }
 </style>
 </head>
 <body>
 <canvas id="game" width="1280" height="800"></canvas>
-<p class="hint">Solmar City. Press Enter or click New Game to play.<br>
-<b>WASD</b> move &amp; drive &nbsp;·&nbsp; <b>E</b> steal a car / board a boat &nbsp;·&nbsp; <b>Space</b> punch / handbrake &nbsp;·&nbsp; <b>Q</b> radio &nbsp;·&nbsp; <b>M</b> mute &nbsp;·&nbsp; <b>P</b> pause</p>
+<p>Solmar City. Press Enter or click New Game to play.</p>
+<p class="hint">WASD drive &amp; walk &middot; E steal / interact / board a boat &middot; Space punch &amp; handbrake &middot; Q radio &middot; M mute</p>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

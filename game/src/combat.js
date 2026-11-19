@@ -1,226 +1,203 @@
-// Combat: the player's gun + fists, and the gang members who
-// shoot back.
-//
-// One rule matters more than the rest: dead enemies are LEFT in
-// place here, and kills are counted exactly once by world.step
-// when it sweeps the field. This module never increments
-// state.kills and never removes a dead enemy — counting in two
-// places is how a kill used to score twice.
+// combat.js — shooting, melee and gang AI.
+// Bullets and enemies live here; KILLS are counted by world.step, never
+// here — dead enemies (hp <= 0) are left in place for world.step to
+// count and remove.
 
-import { PLAYER, WORLD_W, WORLD_H } from './config.js';
-import { angleDiff, angleTo, clamp, dist } from './util.js';
+import { PLAYER } from './config.js';
+import { angleDiff, dist } from './util.js';
 
-const SKINS = ['#e8b98a', '#c98d5f', '#8a5a3b', '#f0c8a0'];
-const ENEMY_BULLET_SPEED = 540;
-const ENEMY_BULLET_DAMAGE = 9;
-const GUN_COOLDOWN = 0.22;
-const MELEE_COOLDOWN = 0.45;
-const ENEMY_SHOOT_COOLDOWN = 1.15;
-const CHASE_NEAR = 260;
-const CHASE_FAR = 600;
-// A firefight never needs more live rounds than this; past it the
-// oldest round is dropped instead of letting the array grow.
-const MAX_BULLETS = 200;
+export const ENEMY_HP = 100;
+export const ENEMY_BULLET_DAMAGE = 9;
+export const ENEMY_BULLET_SPEED = 540;
+export const ENEMY_SHOOT_COOLDOWN = 1.15;
+export const ENEMY_HOLD_RANGE = 260;
+export const ENEMY_CHASE_RANGE = 600;
+export const ENEMY_GUN_RANGE = 520;
 
-function draw(state) {
-  const rng = state.rng;
-  if (!rng) return Math.random();
-  if (typeof rng === 'function') return rng();
-  if (typeof rng.next === 'function') return rng.next();
-  return Math.random();
-}
+const SKIN_TONES = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
 
 export function createCombat() {
-  return {
-    bullets: [],
-    enemies: [],
-    gunCooldown: 0,
-    meleeCooldown: 0,
-  };
+  return { bullets: [], enemies: [] };
 }
 
-// Spawn `count` gang members around (x, y), scattered ±70px.
+function rand(state) {
+  const r = state.rng;
+  return r ? r.next() : Math.random();
+}
+
 export function spawnGang(state, x, y, count) {
-  const spawned = [];
-  for (let i = 0; i < count; i += 1) {
-    const enemy = {
-      x: clamp(x + (draw(state) * 2 - 1) * 70, 24, WORLD_W - 24),
-      y: clamp(y + (draw(state) * 2 - 1) * 70, 24, WORLD_H - 24),
-      angle: draw(state) * Math.PI * 2,
-      hp: 100,
-      speed: 140 + draw(state) * 30,
-      shootCooldown: draw(state) * ENEMY_SHOOT_COOLDOWN,
+  const combat = state.combat;
+  const made = [];
+  for (let i = 0; i < count; i++) {
+    const e = {
+      x: x + (rand(state) * 2 - 1) * 70,
+      y: y + (rand(state) * 2 - 1) * 70,
+      angle: rand(state) * Math.PI * 2,
+      hp: ENEMY_HP,
+      speed: 140 + rand(state) * 30,
+      shootCooldown: rand(state) * ENEMY_SHOOT_COOLDOWN,
       shirt: '#7a2d8f',
-      skin: SKINS[Math.floor(draw(state) * SKINS.length)],
+      skin: SKIN_TONES[Math.floor(rand(state) * SKIN_TONES.length)],
+      anchorX: x,
+      anchorY: y,
       wanderX: x,
       wanderY: y,
       wanderTimer: 0,
     };
-    state.combat.enemies.push(enemy);
-    spawned.push(enemy);
+    combat.enemies.push(e);
+    made.push(e);
   }
-  return spawned;
+  return made;
 }
 
-export function spawnEnemies(state, x, y, count) {
-  return spawnGang(state, x, y, count);
-}
-
-// One player bullet from (x, y) along `angle`. Needs the gun
-// off cooldown and at least one round in the magazine. The muzzle
-// sits 16px ahead of the shooter; the round flies 520px.
 export function firePlayerBullet(state, x, y, angle) {
-  const combat = state.combat;
   const p = state.player;
-  if (!combat || !p) return false;
-  if (combat.gunCooldown > 0) return false;
-  if (p.gunCooldown !== undefined && p.gunCooldown > 0) return false;
-  if (p.ammo <= 0) return false;
-  const mx = x + Math.cos(angle) * 16;
-  const my = y + Math.sin(angle) * 16;
-  if (combat.bullets.length >= MAX_BULLETS) combat.bullets.shift();
+  if (!p) return false;
+  if ((p.gunCooldown || 0) > 0) return false;
+  if ((p.ammo || 0) <= 0) return false;
+  const combat = state.combat;
+  const muzzle = 16;
   combat.bullets.push({
-    x: mx,
-    y: my,
-    angle,
+    x: x + Math.cos(angle) * muzzle,
+    y: y + Math.sin(angle) * muzzle,
     vx: Math.cos(angle) * PLAYER.bulletSpeed,
     vy: Math.sin(angle) * PLAYER.bulletSpeed,
-    speed: PLAYER.bulletSpeed,
-    damage: PLAYER.gunDamage,
     life: PLAYER.gunRange / PLAYER.bulletSpeed,
-    friendly: true,
+    damage: PLAYER.gunDamage,
+    fromEnemy: false,
   });
   p.ammo -= 1;
-  combat.gunCooldown = GUN_COOLDOWN;
-  p.gunCooldown = GUN_COOLDOWN;
+  p.gunCooldown = 0.22;
   return true;
 }
 
-// A punch: 0.45s between swings, hits every living enemy within
-// punch range (+ a little slack) and inside the punch arc of the
-// player's aim. Returns how many enemies it caught.
 export function meleeAttack(state) {
-  const combat = state.combat;
   const p = state.player;
-  if (!combat || !p) return 0;
-  if (combat.meleeCooldown > 0) return 0;
-  combat.meleeCooldown = MELEE_COOLDOWN;
-  p.meleeCooldown = MELEE_COOLDOWN;
+  if (!p) return 0;
+  if ((p.meleeCooldown || 0) > 0) return 0;
+  p.meleeCooldown = 0.45;
+  const reach = PLAYER.punchRange + 11;
   let hits = 0;
-  for (const e of combat.enemies) {
+  for (const e of state.combat.enemies) {
     if (e.hp <= 0) continue;
     const d = dist(p.x, p.y, e.x, e.y);
-    if (d > PLAYER.punchRange + 11) continue;
-    const toEnemy = angleTo(p.x, p.y, e.x, e.y);
-    if (Math.abs(angleDiff(p.aimAngle, toEnemy)) > PLAYER.punchArc) continue;
+    if (d > reach) continue;
+    const toEnemy = Math.atan2(e.y - p.y, e.x - p.x);
+    if (Math.abs(angleDiff(p.aimAngle || 0, toEnemy)) > PLAYER.punchArc) continue;
     e.hp -= PLAYER.punchDamage;
-    hits += 1;
+    hits++;
   }
   return hits;
 }
 
-function fireEnemyBullet(state, enemy, angle) {
-  if (state.combat.bullets.length >= MAX_BULLETS) state.combat.bullets.shift();
-  state.combat.bullets.push({
-    x: enemy.x + Math.cos(angle) * 16,
-    y: enemy.y + Math.sin(angle) * 16,
-    angle,
-    vx: Math.cos(angle) * ENEMY_BULLET_SPEED,
-    vy: Math.sin(angle) * ENEMY_BULLET_SPEED,
-    speed: ENEMY_BULLET_SPEED,
-    damage: ENEMY_BULLET_DAMAGE,
-    life: PLAYER.gunRange / ENEMY_BULLET_SPEED,
-    friendly: false,
-  });
-}
-
-function stepEnemy(state, e, h) {
-  const p = state.player;
-  const d = dist(e.x, e.y, p.x, p.y);
-  if (d > CHASE_FAR) {
-    // Too far to care: wander slowly around the anchor point.
-    e.wanderTimer -= h;
-    const wd = dist(e.x, e.y, e.wanderX, e.wanderY);
-    if (e.wanderTimer <= 0 || wd < 12) {
-      e.wanderX = clamp(e.x + (draw(state) * 2 - 1) * 80, 24, WORLD_W - 24);
-      e.wanderY = clamp(e.y + (draw(state) * 2 - 1) * 80, 24, WORLD_H - 24);
-      e.wanderTimer = 2 + draw(state) * 2;
-    }
-    const a = angleTo(e.x, e.y, e.wanderX, e.wanderY);
-    e.angle = a;
-    e.x += Math.cos(a) * e.speed * 0.35 * h;
-    e.y += Math.sin(a) * e.speed * 0.35 * h;
-    return;
-  }
-  if (d > CHASE_NEAR) {
-    // Close the distance.
-    const a = angleTo(e.x, e.y, p.x, p.y);
-    e.angle = a;
-    e.x += Math.cos(a) * e.speed * h;
-    e.y += Math.sin(a) * e.speed * h;
-    return;
-  }
-  // In range: hold position and shoot, but only inside gun range
-  // and only while the player is still standing.
-  e.angle = angleTo(e.x, e.y, p.x, p.y);
-  e.shootCooldown -= h;
-  if (e.shootCooldown <= 0 && d <= PLAYER.gunRange && p.hp > 0) {
-    fireEnemyBullet(state, e, e.angle);
-    e.shootCooldown = ENEMY_SHOOT_COOLDOWN;
-  }
-}
-
-// Bullets fly, enemies chase / hold / wander. Dead enemies are
-// left exactly where they fell — world.step sweeps them up and
-// counts the kill once. Large dt is split so a hitch never lets
-// a bullet jump clean through a wall.
 export function stepCombat(state, dt) {
-  const combat = state.combat;
   const p = state.player;
-  if (!combat || !p) return 0;
-  let remaining = dt;
-  while (remaining > 0) {
-    const h = Math.min(remaining, 1 / 30);
-    remaining -= h;
+  const combat = state.combat;
+  const city = state.city;
+  let events = 0;
 
-    if (combat.gunCooldown > 0) combat.gunCooldown = Math.max(0, combat.gunCooldown - h);
-    if (combat.meleeCooldown > 0) combat.meleeCooldown = Math.max(0, combat.meleeCooldown - h);
-    if (p.gunCooldown !== undefined && p.gunCooldown > 0) p.gunCooldown = Math.max(0, p.gunCooldown - h);
-    if (p.meleeCooldown !== undefined && p.meleeCooldown > 0) p.meleeCooldown = Math.max(0, p.meleeCooldown - h);
+  if (p) {
+    if (p.gunCooldown > 0) p.gunCooldown -= dt;
+    if (p.meleeCooldown > 0) p.meleeCooldown -= dt;
+  }
 
-    const city = state.city;
-    for (let i = combat.bullets.length - 1; i >= 0; i -= 1) {
-      const b = combat.bullets[i];
-      b.x += b.vx * h;
-      b.y += b.vy * h;
-      b.life -= h;
-      let dead = b.life <= 0;
-      if (!dead && (b.x < 0 || b.x > WORLD_W || b.y < 0 || b.y > WORLD_H)) dead = true;
-      if (!dead && city && city.pointInBuilding(b.x, b.y)) dead = true;
-      if (!dead && b.friendly) {
-        for (const e of combat.enemies) {
-          if (e.hp <= 0) continue;
-          if (dist(b.x, b.y, e.x, e.y) < 14) {
-            e.hp -= b.damage;
-            dead = true;
-            break;
-          }
-        }
-      }
-      if (!dead && !b.friendly) {
-        if (dist(b.x, b.y, p.x, p.y) < 13 && !(p.invuln > 0)) {
-          p.hp -= b.damage;
-          dead = true;
-        }
-      }
-      if (dead) combat.bullets.splice(i, 1);
+  // Bullets move, die on buildings or at end of life, and hit things.
+  for (let i = combat.bullets.length - 1; i >= 0; i--) {
+    const b = combat.bullets[i];
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt;
+    let dead = b.life <= 0;
+    if (!dead && city && city.pointInBuilding && city.pointInBuilding(b.x, b.y)) {
+      dead = true;
     }
+    if (!dead && !b.fromEnemy) {
+      for (const e of combat.enemies) {
+        if (e.hp <= 0) continue;
+        if (dist(b.x, b.y, e.x, e.y) < 14) {
+          e.hp -= b.damage;
+          dead = true;
+          break;
+        }
+      }
+    }
+    if (!dead && b.fromEnemy && p) {
+      if (dist(b.x, b.y, p.x, p.y) < 12) {
+        p.hp -= b.damage;
+        events |= 128; // ENEMY_SHOT
+        dead = true;
+      }
+    }
+    if (dead) combat.bullets.splice(i, 1);
+  }
 
-    for (const e of combat.enemies) {
-      if (e.hp <= 0) continue;
-      stepEnemy(state, e, h);
-      if (city) city.resolveCircle(e, PLAYER.radius);
+  // Enemies: hold + shoot up close, chase at mid range, wander far away.
+  for (const e of combat.enemies) {
+    if (e.hp <= 0) continue;
+    const d = p ? dist(e.x, e.y, p.x, p.y) : 9999;
+    if (d < ENEMY_HOLD_RANGE) {
+      if (p) e.angle = Math.atan2(p.y - e.y, p.x - e.x);
+      e.shootCooldown -= dt;
+      if (e.shootCooldown <= 0 && d <= ENEMY_GUN_RANGE && p) {
+        const a = Math.atan2(p.y - e.y, p.x - e.x);
+        combat.bullets.push({
+          x: e.x + Math.cos(a) * 16,
+          y: e.y + Math.sin(a) * 16,
+          vx: Math.cos(a) * ENEMY_BULLET_SPEED,
+          vy: Math.sin(a) * ENEMY_BULLET_SPEED,
+          life: ENEMY_GUN_RANGE / ENEMY_BULLET_SPEED,
+          damage: ENEMY_BULLET_DAMAGE,
+          fromEnemy: true,
+        });
+        e.shootCooldown = ENEMY_SHOOT_COOLDOWN;
+      }
+    } else if (d <= ENEMY_CHASE_RANGE) {
+      const a = Math.atan2(p.y - e.y, p.x - e.x);
+      e.angle = a;
+      e.x += Math.cos(a) * e.speed * dt;
+      e.y += Math.sin(a) * e.speed * dt;
+    } else {
+      e.wanderTimer -= dt;
+      if (e.wanderTimer <= 0) {
+        e.wanderX = e.anchorX + (rand(state) * 2 - 1) * 120;
+        e.wanderY = e.anchorY + (rand(state) * 2 - 1) * 120;
+        e.wanderTimer = 2 + rand(state) * 2;
+      }
+      const wd = dist(e.x, e.y, e.wanderX, e.wanderY);
+      if (wd > 8) {
+        const a = Math.atan2(e.wanderY - e.y, e.wanderX - e.x);
+        e.angle = a;
+        e.x += Math.cos(a) * e.speed * 0.5 * dt;
+        e.y += Math.sin(a) * e.speed * 0.5 * dt;
+      }
+    }
+    if (city && city.resolveCircle) {
+      const fixed = city.resolveCircle(e.x, e.y, 11);
+      e.x = fixed.x;
+      e.y = fixed.y;
     }
   }
-  return 0;
+
+  // Gang members spread out instead of piling on one pixel while chasing.
+  for (let i = 0; i < combat.enemies.length; i++) {
+    const a = combat.enemies[i];
+    if (a.hp <= 0) continue;
+    for (let j = i + 1; j < combat.enemies.length; j++) {
+      const b = combat.enemies[j];
+      if (b.hp <= 0) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0.01 && d < 28) {
+        const push = ((28 - d) / 2) * Math.min(1, 3 * dt);
+        const nx = dx / d;
+        const ny = dy / d;
+        a.x -= nx * push;
+        a.y -= ny * push;
+        b.x += nx * push;
+        b.y += ny * push;
+      }
+    }
+  }
+  return events;
 }

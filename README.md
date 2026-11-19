@@ -1,81 +1,52 @@
-# Solmar City
+# Solmar City — an open-world crime game
 
-[![Solmar City](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
-[![Rank](https://make.fun/badge/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
-[![Reward](https://make.fun/badge/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
+![Solmar City](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city.svg)
+![Rank](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/rank.svg)
+![Reward](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/reward.svg)
 
-An open-world crime game for the [make.fun GTA6 Game bounty](https://make.fun/bounty/gta6-01) — a 2D top-down city where you steal cars, outrun the cops, sail the harbor, and fight your way to the top of Solmar. No Rockstar assets, no build step, no network: just open `game/index.html` through the included server and play.
+Solmar City is a top-down open-world crime game in the browser. Steal cars, dodge the cops, run 12 story missions, sail the harbor, and take the crown of Solmar. Built for the [make.fun GTA6 bounty](https://make.fun) (`gta6-01`).
 
-You are **Mara Voss**, fresh out of the shadows and ready to take the city. Steal anything with wheels, grab the bank vault, dodge roadblocks and the police heli, and finish all **12 story missions** to wear the Solmar Crown.
+## What you do
 
-## How to play
+- **12 story missions, $34,650 in payouts** — from M1 "First Wheels" ($200) to M12 "The Solmar Crown" ($10,000). Bank vaults, gang turf wars, dockside night runs, and a boat trip to Gull Island.
+- **6 boats** — moored at the Marina and Docks, including a red speedboat, a white yacht, and a yellow jetski (the fastest). Press E near a boat to board, E again to step ashore.
+- **5 radio stations (Q to cycle)** — SOLMAR FM sunny pop, HARBOR 98 late-night swing, NEON NIGHTS synthwave, PALM DRIVE sunset chillwave, and MIDNIGHT DRIVE night cruise. All synthesized live with WebAudio.
+- **Taxi fares** — while driving, a waving passenger appears roadside. Pick them up and deliver them in 45 seconds for $80–$150.
+- **12 Solmar Coins** — hidden gold coins on the streets, $25 each. HUD counts your haul.
+- **Deeper police** — roadblocks at 3+ stars, a police helicopter with a spotlight at 4–5 stars. Wanted level decays: first star drops after ~12 seconds, then one every ~8 seconds.
+- **Driving feel** — hold Space while driving for a handbrake slide with tyre smoke. Space on foot still punches.
+- **Pickups, saves, and more** — cash, health, and ammo pickups on the streets; progress autosaves; 16 traffic cars and 34 pedestrians bring the city to life.
 
-```sh
+## Controls
+
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Move / drive (steer + throttle in a car) |
+| Mouse | Aim, hold to shoot |
+| Shift | Run |
+| E | Interact — steal a car, board a boat, grab a crate or the vault |
+| Space | Punch on foot, handbrake while driving |
+| Q | Cycle radio station |
+| M | Mute |
+| P / Esc | Pause |
+| Enter | Confirm / start |
+
+## Run it
+
+```bash
 node serve.ts
-# game is on http://localhost:8080
+# open http://localhost:8080
 ```
 
-- **WASD / arrows** — walk, or drive when in a car
-- **E** — steal a car, board a boat, grab a crate, grab the vault, get out
-- **Mouse** — aim, **click** to shoot
-- **Space** — punch on foot, **handbrake** while driving (hard stop + tyre smoke + slide)
-- **Q** — cycle the radio (5 stations)
-- **Shift** — run
-- **P / Esc** — pause (progress saves) • **M** — mute
-
-Progress saves automatically after every mission and on pause. **Continue** on the title screen picks up where you left off.
-
-## What's in the city
-
-- **12 story missions, $34,600 in payouts** — from M1 Hot Wheels ($200) to M12 The Solmar Crown ($10,000). The story ends when the crown is yours.
-- **Drive anything** — steal sedans, taxis, vans, trucks and sportscars off the street. Handbrake turns included.
-- **Sail the harbor** — 6 boats moored in the sea: 3 classic boats, a red speedboat, a white yacht, and a yellow jetski (the fastest thing on the water). E boards, E steps ashore.
-- **5 radio stations** — SOLMAR FM (sunny pop), HARBOR 98 (late-night swing), NEON NIGHTS (synthwave), PALM DRIVE (sunset chillwave), MIDNIGHT DRIVE (night cruise). All synthesized live with WebAudio, Q cycles them.
-- **Wanted system** — 1 to 5 stars. Steal, shoot, or run someone over and the heat rises; lay low and it cools off. At 3+ stars the cops set up **roadblocks**; at 4–5 stars the **police helicopter** circles overhead with a spotlight. Get caught on foot and you're BUSTED; lose all health and you're WASTED — either way you wake up at Mara's Safehouse.
-- **Taxi fares** — while driving, a waving passenger appears at the roadside. Pick them up and deliver them in 45 seconds for $80–$150.
-- **Solmar Coins** — 12 hidden gold coins around the streets, $25 each. HUD counts them.
-- **Traffic + pedestrians** — 16 cars and 34 pedestrians living their lives (and panicking when you drive on the sidewalk).
-- **Pickups** — cash ($60), health (+40) and ammo (+36) scattered on the streets.
-- **Live minimap** — you, the mission target, landmarks and every cop, at a glance.
-
-## Missions
-
-| # | Mission | Payout |
-|---|---------|-------:|
-| M1 | Hot Wheels — steal a car, bring it to Ray's Garage | $200 |
-| M2 | Harbor Run — grab 3 crates at the Docks, drop them at the Marina | $400 |
-| M3 | Heat Wave — hit 2 wanted stars, then lose the cops | $600 |
-| M4 | Turf War — put down 4 Vipers on their turf | $800 |
-| M5 | The Solmar Score — rob the Grand Solmar Bank, escape | $3,500 |
-| M6 | Harbor Lights — boat across to Gull Island | $900 |
-| M7 | On Air — clear 3 Static Boys off Solmar Radio | $1,200 |
-| M8 | The Grand Finale — vault, 6 guards, escape | $5,000 |
-| M9 | Night Shift at the Docks — 4 Harbor Rats, then sail | $1,500 |
-| M10 | King of Solmar — 6 Vipers, the vault, escape | $7,500 |
-| M11 | Midnight Run — Rats, Marina, boat, island | $3,000 |
-| M12 | The Solmar Crown — vault, 6 guards, escape, drive home | $10,000 |
-
-Starting cash is $50, so a full story run ends at **$34,650**.
+No build step, no dependencies. `?shot=harbor&seed=1` stages the harbor screenshot scene (shot 4: M6 in a boat, radio on); `city`, `chase`, and `downtown` stage the other three shots.
 
 ## Screenshots
 
-Four live scenes, staged through `?shot=` (see `game/src/shots.json`):
-
-1. **start** — title screen
-2. **city** — downtown drive on M2
-3. **chase** — 4-star police chase with roadblocks + heli on M8
-4. **harbor** — night boat run on M6 with NEON NIGHTS on the HUD
-
-## Tech
-
-- Pure ES modules, zero dependencies, zero build step. `node serve.ts` serves `game/` on port 8080.
-- One module per job under `game/src/`: world, city, render, missions (×4 files), combat, traffic, police, police2, sidejobs, radio, boats, audio, save, input, shots, random, util, config.
-- `main.ts` is the make.fun entrypoint — it copies `game/` + `screenshots/` to the output dir and builds the dossier.
-
-## Credits
-
-Built by an AI agent for the make.fun GTA6 Game bounty. Solmar City is an original game — no GTA assets, no Rockstar code.
+1. Downtown Solmar — M1 on foot in morning traffic.
+2. Three-star police chase in a stolen car.
+3. Bank district — M5, taxi fare waiting.
+4. Harbor — M6 in a boat near Gull Island, radio on.
 
 ---
 
-Referral: `5c2wyg2x` — play Solmar City via the bounty link above.
+Made for the make.fun GTA6 bounty. Referral: `5c2wyg2x`

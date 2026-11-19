@@ -1,101 +1,83 @@
-// In-game radio: five synthesized stations, no audio files.
-// Each station is a little lookahead scheduler on an 8th-note
-// grid — bass + lead + hat voices, all WebAudio oscillators —
-// running on its own lazy AudioContext, so it only starts after
-// the player has gestured (Q press / New Game click).
-//
-// Q cycles: SOLMAR FM -> HARBOR 98 -> NEON NIGHTS -> PALM DRIVE
-// -> MIDNIGHT DRIVE -> back to SOLMAR FM.
+// radio.js — in-game radio: 5 WebAudio synth stations on one lazy
+// AudioContext with a lookahead scheduler on an 8th-note grid.
+// Bass + lead + hat voices per station. Only starts after a user
+// gesture (Q press / New Game click); tickRadio is a no-op before that.
+
+const MAJOR = [0, 2, 4, 5, 7, 9, 11];
+const MINOR = [0, 2, 3, 5, 7, 8, 10];
 
 const STATIONS = [
   {
     name: 'SOLMAR FM',
-    tag: 'sunny pop',
+    desc: 'sunny pop',
     bpm: 112,
-    minor: false,
     root: 60,
-    scale: [0, 2, 4, 5, 7, 9, 11],
-    bass: [0, -1, 0, -1, 4, -1, 3, -1],
-    lead: [7, -1, -1, 4, -1, 7, -1, 5],
-    hatEvery: 2,
-    bassWave: 'triangle',
-    leadWave: 'square',
+    scale: MAJOR,
+    swing: false,
+    bass: [0, null, 0, null, 5, null, 5, null, 4, null, 4, null, 5, null, 7, null],
+    lead: [7, null, null, 9, null, null, 7, null, 9, null, null, 7, null, 9, null, null],
+    bassVol: 0.16,
+    leadVol: 0.09,
   },
   {
     name: 'HARBOR 98',
-    tag: 'late-night swing',
+    desc: 'late-night swing',
     bpm: 96,
-    minor: false,
     root: 53,
-    scale: [0, 2, 4, 5, 7, 9, 11],
-    bass: [0, 2, 4, 5, 7, 5, 4, 2],
-    lead: [4, -1, 7, -1, 5, -1, 4, -1],
-    hatEvery: 2,
+    scale: MAJOR,
     swing: true,
-    bassWave: 'sine',
-    leadWave: 'triangle',
+    bass: [0, 2, 4, 5, 7, 5, 4, 2, 0, 2, 4, 5, 7, 9, 7, 5],
+    lead: [7, null, null, null, 9, null, null, null, 7, null, 5, null, 4, null, null, null],
+    bassVol: 0.15,
+    leadVol: 0.08,
   },
   {
     name: 'NEON NIGHTS',
-    tag: 'synthwave',
+    desc: 'synthwave',
     bpm: 122,
-    minor: true,
     root: 57,
-    scale: [0, 2, 3, 5, 7, 8, 10],
-    bass: [0, 0, 0, 3, 0, 0, 5, 3],
-    lead: [7, -1, 10, -1, 7, -1, 8, -1],
-    hatEvery: 1,
-    bassWave: 'sawtooth',
-    leadWave: 'square',
+    scale: MINOR,
+    swing: false,
+    bass: [0, null, 7, null, 0, null, 10, null, 8, null, 7, null, 5, null, 3, null],
+    lead: [12, null, 10, null, 12, null, 14, null, 15, null, 14, null, 12, null, 10, null],
+    bassVol: 0.17,
+    leadVol: 0.07,
   },
   {
     name: 'PALM DRIVE',
-    tag: 'sunset chillwave',
+    desc: 'sunset chillwave',
     bpm: 100,
-    minor: false,
-    root: 62,
-    scale: [0, 2, 4, 5, 7, 9, 11],
-    bass: [0, -1, -1, 0, -1, 3, -1, 4],
-    lead: [4, -1, -1, 7, -1, -1, 5, -1],
-    hatEvery: 2,
-    bassWave: 'sine',
-    leadWave: 'sine',
+    root: 55,
+    scale: MAJOR,
+    swing: false,
+    bass: [0, null, null, null, 5, null, null, null, 4, null, null, null, 5, null, null, null],
+    lead: [7, null, null, null, null, null, 9, null, 7, null, null, null, null, 5, null, null],
+    bassVol: 0.13,
+    leadVol: 0.08,
   },
   {
     name: 'MIDNIGHT DRIVE',
-    tag: 'night cruise',
+    desc: 'night cruise',
     bpm: 90,
-    minor: true,
     root: 50,
-    scale: [0, 2, 3, 5, 7, 8, 10],
-    bass: [0, -1, 3, -1, 5, -1, 3, -1],
-    lead: [7, -1, -1, 10, -1, 7, -1, 5],
-    hatEvery: 2,
-    bassWave: 'triangle',
-    leadWave: 'triangle',
+    scale: MINOR,
+    swing: false,
+    bass: [0, null, null, null, 0, null, 3, null, 5, null, null, null, 3, null, 2, null],
+    lead: [7, null, null, null, null, null, null, null, 10, null, null, null, null, null, 7, null],
+    bassVol: 0.14,
+    leadVol: 0.07,
   },
 ];
 
-export { STATIONS };
-
-function midiToFreq(midi) {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
-
-function audioContextClass() {
-  if (typeof window !== 'undefined') {
-    return window.AudioContext || window.webkitAudioContext || null;
-  }
-  if (typeof globalThis !== 'undefined') {
-    return globalThis.AudioContext || globalThis.webkitAudioContext || null;
-  }
-  return null;
+export function radioStationCount() {
+  return STATIONS.length;
 }
 
 export function createRadio() {
   return {
     context: null,
     master: null,
+    noiseBuf: null,
     stationIndex: 0,
     step: 0,
     nextStepTime: 0,
@@ -104,21 +86,55 @@ export function createRadio() {
   };
 }
 
-export function radioStationCount() {
-  return STATIONS.length;
-}
-
-export function radioStation(radio) {
+function stationOf(radio) {
   return STATIONS[radio.stationIndex % STATIONS.length];
 }
 
 export function radioName(radio) {
-  const s = radioStation(radio);
-  return s.name + ' — ' + s.tag;
+  const s = stationOf(radio);
+  return s.name + ' — ' + s.desc;
 }
 
-// Advance to the next station, wrapping around. The step counter
-// restarts so the new station begins on its downbeat.
+export function ensureRadio(radio) {
+  if (radio.context) {
+    if (radio.context.state === 'suspended') {
+      radio.context.resume().catch(() => {});
+    }
+    return radio;
+  }
+  try {
+    const AC =
+      typeof window !== 'undefined'
+        ? window.AudioContext || window.webkitAudioContext
+        : typeof AudioContext !== 'undefined'
+          ? AudioContext
+          : null;
+    if (!AC) return radio;
+    const ctx = new AC();
+    radio.context = ctx;
+    radio.master = ctx.createGain();
+    radio.master.gain.value = radio.muted ? 0 : 0.35;
+    radio.master.connect(ctx.destination);
+    const len = Math.floor(ctx.sampleRate * 0.1);
+    radio.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = radio.noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    radio.started = true;
+    radio.step = 0;
+    radio.nextStepTime = ctx.currentTime + 0.1;
+  } catch (e) {
+    radio.context = null;
+  }
+  return radio;
+}
+
+export function setRadioMuted(radio, muted) {
+  radio.muted = !!muted;
+  if (radio.master && radio.context) {
+    radio.master.gain.setTargetAtTime(radio.muted ? 0 : 0.35, radio.context.currentTime, 0.05);
+  }
+}
+
 export function cycleRadio(radio) {
   radio.stationIndex = (radio.stationIndex + 1) % STATIONS.length;
   radio.step = 0;
@@ -128,97 +144,81 @@ export function cycleRadio(radio) {
   return radioName(radio);
 }
 
-// Create the AudioContext on first gesture. Safe to call often.
-export function ensureRadio(radio) {
-  if (radio.context) return true;
-  const AC = audioContextClass();
-  if (!AC) return false;
-  try {
-    const c = new AC();
-    radio.context = c;
-    const master = c.createGain();
-    master.gain.value = radio.muted ? 0 : 0.22;
-    master.connect(c.destination);
-    radio.master = master;
-    radio.started = true;
-    radio.nextStepTime = c.currentTime + 0.05;
-    if (typeof c.resume === 'function') c.resume();
-    return true;
-  } catch {
-    radio.context = null;
-    return false;
+function midiToFreq(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function degreeToMidi(station, degree, octaveUp) {
+  const scale = station.scale;
+  const idx = ((degree % 7) + 7) % 7;
+  const oct = Math.floor(degree / 7);
+  return station.root + scale[idx] + 12 * oct + 12 * (octaveUp || 0);
+}
+
+function playTone(radio, freq, time, dur, type, vol) {
+  const ctx = radio.context;
+  const osc = ctx.createOscillator();
+  osc.type = type;
+  osc.frequency.value = freq;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(vol, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  osc.connect(g);
+  g.connect(radio.master);
+  osc.start(time);
+  osc.stop(time + dur + 0.02);
+}
+
+function playHat(radio, time, vol) {
+  const ctx = radio.context;
+  const src = ctx.createBufferSource();
+  src.buffer = radio.noiseBuf;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 6000;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(vol, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+  src.connect(filter);
+  filter.connect(g);
+  g.connect(radio.master);
+  src.start(time);
+  src.stop(time + 0.05);
+}
+
+function scheduleStep(radio, station, step, time, stepDur) {
+  let t = time;
+  if (station.swing && step % 2 === 1) {
+    t += stepDur * 0.25;
+  }
+  const bassDeg = station.bass[step];
+  if (bassDeg !== null && bassDeg !== undefined) {
+    playTone(radio, midiToFreq(degreeToMidi(station, bassDeg, 0)), t, stepDur * 0.9, 'triangle', station.bassVol);
+  }
+  const leadDeg = station.lead[step];
+  if (leadDeg !== null && leadDeg !== undefined) {
+    playTone(radio, midiToFreq(degreeToMidi(station, leadDeg, 1)), t, stepDur * 0.8, 'square', station.leadVol);
+  }
+  if (step % 2 === 0) {
+    playHat(radio, t, 0.05);
   }
 }
 
-export function setRadioMuted(radio, muted) {
-  radio.muted = !!muted;
-  if (radio.master && radio.context) {
-    radio.master.gain.setTargetAtTime(radio.muted ? 0 : 0.22, radio.context.currentTime, 0.05);
-  }
-}
-
-function scheduleNote(radio, freq, time, dur, type, gain) {
-  const c = radio.context;
-  if (!c || !radio.master) return;
-  try {
-    const osc = c.createOscillator();
-    const g = c.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    g.gain.setValueAtTime(gain, time);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
-    osc.connect(g);
-    g.connect(radio.master);
-    osc.start(time);
-    osc.stop(time + dur + 0.02);
-  } catch {
-    // A dropped note never breaks the frame.
-  }
-}
-
-function scheduleStep(radio, stepIndex, time) {
-  const s = radioStation(radio);
-  const eighth = 60 / s.bpm / 2;
-  if (s.swing && stepIndex % 2 === 1) time += eighth * 0.14;
-  const bar = Math.floor(stepIndex / 8) % 4;
-  const chordDegrees = [0, 5, 3, 4];
-  const chordOffset = s.scale[chordDegrees[bar] % s.scale.length];
-  const inBar = stepIndex % 8;
-
-  const bassDeg = s.bass[inBar];
-  if (bassDeg >= 0) {
-    const midi = s.root - 12 + chordOffset + s.scale[bassDeg % s.scale.length];
-    scheduleNote(radio, midiToFreq(midi), time, eighth * 0.95, s.bassWave, 0.32);
-  }
-
-  const leadDeg = s.lead[inBar];
-  if (leadDeg >= 0) {
-    const midi = s.root + 12 + s.scale[leadDeg % s.scale.length];
-    scheduleNote(radio, midiToFreq(midi), time, eighth * 1.4, s.leadWave, 0.07);
-  }
-
-  if (stepIndex % s.hatEvery === 0) {
-    scheduleNote(radio, 7200, time, 0.03, 'square', 0.012);
-  }
-}
-
-// Lookahead scheduler: call every frame. No-ops until ensureRadio
-// has built a context (i.e. until the player gestures).
 export function tickRadio(radio) {
-  const c = radio.context;
-  if (!c || !radio.started) return;
-  const s = radioStation(radio);
-  const eighth = 60 / s.bpm / 2;
-  if (radio.muted) {
-    radio.nextStepTime = Math.max(radio.nextStepTime, c.currentTime + 0.1);
-    return;
-  }
-  if (radio.nextStepTime < c.currentTime - 0.25) {
-    radio.nextStepTime = c.currentTime + 0.05;
-  }
-  while (radio.nextStepTime < c.currentTime + 0.15) {
-    scheduleStep(radio, radio.step, radio.nextStepTime);
-    radio.step += 1;
-    radio.nextStepTime += eighth;
+  if (!radio || !radio.context || !radio.started) return;
+  const ctx = radio.context;
+  const station = stationOf(radio);
+  const stepDur = 60 / station.bpm / 2;
+  while (radio.nextStepTime < ctx.currentTime + 0.15) {
+    scheduleStep(radio, station, radio.step, radio.nextStepTime, stepDur);
+    radio.nextStepTime += stepDur;
+    radio.step = (radio.step + 1) % 16;
   }
 }
+
+// Module object for render.js: RadioMod.name(radio) is the station label.
+export const RadioMod = {
+  name: radioName,
+  stationCount: radioStationCount,
+  cycle: cycleRadio,
+};

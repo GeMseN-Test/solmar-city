@@ -1,47 +1,29 @@
-// Solmar City v2 — entrypoint (make.fun gta6-01).
-//
-// Hands the game in: copies game/ and screenshots/ from beside
-// this file into the output directory, then writes
-// dossier.json there with the vendored make.fun library.
-//
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-//
-// Outside the grader MAKEFUN_OUTPUT_DIR stands in for /output.
-// The game itself is 20 modules under game/src/ plus the page;
-// the tally lives in v2-attempt3-tally.md at the project root.
-// This file only talks to vendor/makefun-game.ts — no other
-// imports — so the hand-in works with the stdlib alone.
-
+// main.ts — dossier builder for the Solmar City make.fun entry.
+// Run: node main.ts
+// Copies game/ + screenshots/ to $OUTPUT_DIR (or /output when unset)
+// and writes dossier.json from vendor/makefun-game.ts.
+// Tally: 25 files — 23 game files (22 src modules incl. missions4,
+// 5th radio station, 6th boat + index.html) + serve.ts + main.ts.
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = fileURLToPath(new URL('.', import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const repoRoot: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+const outDir: string = process.env.OUTPUT_DIR || '/output';
 
 mkdirSync(outDir, { recursive: true });
-cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
 
-const shotsDir = join(repoRoot, 'screenshots');
+const gameDir = path.join(repoRoot, 'game');
+cpSync(gameDir, path.join(outDir, 'game'), { recursive: true });
+
+const shotsDir = path.join(repoRoot, 'screenshots');
 if (existsSync(shotsDir)) {
-  cpSync(shotsDir, join(outDir, 'screenshots'), { recursive: true });
-} else {
-  mkdirSync(join(outDir, 'screenshots'), { recursive: true });
+  cpSync(shotsDir, path.join(outDir, 'screenshots'), { recursive: true });
 }
 
-// buildDossier reads the copied game/ + screenshots/ out of the
-// output directory and returns the dossier as canonical JSON
-// bytes (a Uint8Array). Write those bytes straight to disk:
-// JSON.stringify on a Uint8Array would explode it into a
-// {"0": 123, "1": 34, ...} object and corrupt the file.
-const dossierBytes = buildDossier(outDir, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-  game_path_max_bytes: 1000,
-});
-writeFileSync(join(outDir, 'dossier.json'), dossierBytes);
+const dossier = await buildDossier(repoRoot, { text_max_bytes: 163840 });
+const bytes = typeof dossier === 'string' ? Buffer.from(dossier, 'utf8') : dossier;
+writeFileSync(path.join(outDir, 'dossier.json'), bytes);
 
-console.log(`Solmar City handed in to ${outDir} (dossier.json ${dossierBytes.length} bytes)`);
+console.log('dossier written to ' + path.join(outDir, 'dossier.json'));
