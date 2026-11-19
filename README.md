@@ -1,8 +1,8 @@
 # Solmar City — an open-world crime game
 
-[![make.fun](https://img.shields.io/badge/make.fun-gta6--01-blue)](https://make.fun/competitions/gta6-01)
-[![Solmar City](https://img.shields.io/badge/Solmar_City-open--world-green)](https://make.fun/competitions/gta6-01)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 Built for the [make.fun gta6-01 bounty](https://make.fun/competitions/gta6-01) — "Make GTA 6".
 A fan-made original 2D top-down open-world crime game. No Rockstar assets, no GTA VI
