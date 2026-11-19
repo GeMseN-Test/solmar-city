@@ -1,70 +1,63 @@
-// missions2.js — story missions M6–M8 (the v2 batch).
-// Appended to MISSIONS by registerStoryMissions(). Idempotent: calling it
-// twice adds nothing the second time. Uses only the objective kinds the
-// engine in missions.js already knows.
-
-import { MISSIONS } from './missions.js';
+// missions2.js — Solmar City story missions M6–M8 (v2 additions).
+// Written from the v2 spec only. Appends to MISSIONS; idempotent.
+import { MISSIONS, landmarkPos } from './missions.js';
 import { spawnGang } from './combat.js';
 
 const EXTRA = [
   {
-    id: 'm6-harbor-lights',
+    id: 'harbor-lights',
     title: 'Harbor Lights',
-    briefing: 'A boat is waiting at the Docks. Sail her out to Gull Island, then bring her home to the Marina.',
+    briefing: 'Malam di pelabuhan. Naik perahu di Docks, mampir ke Gull Island, sampai ke Marina.',
     reward: 900,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Go to the Solmar Docks' },
-      { kind: 'board', text: 'Board a boat (walk up to one and press E)' },
-      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
-      { kind: 'reach', key: 'marina', text: 'Dock at the Solmar Marina' },
+      { kind: 'reach', key: 'docks', text: 'Pergi ke Solmar Docks' },
+      { kind: 'board', text: 'Naik perahu (E di dekat perahu)' },
+      { kind: 'reach', key: 'island', text: 'Berlayar ke Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Berlayar ke Solmar Marina' },
     ],
   },
   {
-    id: 'm7-on-air',
+    id: 'on-air',
     title: 'On Air',
-    briefing: 'Static Boys took over Solmar Radio. Take the tower back, then lay low at the Safehouse.',
+    briefing: 'Static Boys menguasai menara radio. Usir mereka, lalu pulang ke Safehouse.',
     reward: 1200,
     objectives: [
-      { kind: 'reach', key: 'radio', text: 'Go to the Solmar Radio tower' },
-      { kind: 'defeat', count: 3, text: 'Defeat 3 Static Boys' },
-      { kind: 'reach', key: 'safehouse', text: 'Get back to the Safehouse' },
+      { kind: 'reach', key: 'radio', text: 'Pergi ke menara Solmar Radio' },
+      { kind: 'defeat', count: 3, text: 'Kalahkan 3 Static Boys' },
+      { kind: 'reach', key: 'safehouse', text: 'Kembali ke Safehouse Mara' },
     ],
   },
   {
-    id: 'm8-grand-finale',
+    id: 'grand-finale',
     title: 'The Grand Finale',
-    briefing: 'One last bank job, done loud. Grab the vault, drop six guards, and disappear.',
+    briefing: 'Bank Grand Solmar, sekali lagi — kali ini besar. Bobol, lawan penjaga, kabur.',
     reward: 5000,
     objectives: [
-      { kind: 'reach', key: 'bank', text: 'Go to the Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
-      { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to the Safehouse' },
+      { kind: 'reach', key: 'bank', text: 'Pergi ke Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Bobol brankas (E di depan bank)' },
+      { kind: 'defeat', count: 6, text: 'Kalahkan 6 penjaga bank' },
+      { kind: 'escape', key: 'safehouse', text: 'Kabur ke Safehouse Mara' },
     ],
   },
 ];
 
 export function registerStoryMissions() {
-  for (const def of EXTRA) {
-    if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
+  for (const m of EXTRA) {
+    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
   }
   return MISSIONS.length;
 }
 
-// Gang setup for M7/M8, kept as its own call so the wiring stays obvious:
-// startMission in missions.js already spawns from the same table, this is
-// the v2-named entry point for the two missions that introduced it.
+// Spawn the gang for a v2 mission: defeat count around the FIRST reach
+// landmark (radio tower for M7, bank for M8). startMission already does
+// this generically; this helper keeps the v2 API from the spec.
 export function setupV2Mission(state, def) {
-  const table = {
-    'm7-on-air': { key: 'radio', count: 3 },
-    'm8-grand-finale': { key: 'bank', count: 6 },
-  };
-  const spawn = table[def.id];
-  if (!spawn) return false;
-  const lm = state.city && state.city.landmarks ? state.city.landmarks[spawn.key] : null;
-  if (!lm) return false;
-  const x = typeof lm.x === 'number' ? lm.x : lm[0];
-  const y = typeof lm.y === 'number' ? lm.y : lm[1];
-  spawnGang(state, x, y, spawn.count);
+  if (!def) return false;
+  const defeat = def.objectives.find((o) => o.kind === 'defeat');
+  const firstReach = def.objectives.find((o) => o.kind === 'reach');
+  if (!defeat || !firstReach) return false;
+  const pos = landmarkPos(state, firstReach.key);
+  if (!pos) return false;
+  spawnGang(state, pos.x, pos.y, defeat.count || 3);
   return true;
 }

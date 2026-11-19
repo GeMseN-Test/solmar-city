@@ -1,85 +1,67 @@
 # Solmar City — an open-world crime game
 
-[![make.fun bounty](https://img.shields.io/badge/make.fun-bounty%20gta6--01-7c3aed)](https://make.fun/bounty/gta6-01)
-[![Prize $1,666](https://img.shields.io/badge/prize-%241%2C666%20USDC-22c55e)](https://make.fun/bounty/gta6-01)
-[![Top 100 paid](https://img.shields.io/badge/top%20100-paid-facc15)](https://make.fun/bounty/gta6-01)
+[![make.fun](https://img.shields.io/badge/make.fun-gta6--01-blue)](https://make.fun/competitions/gta6-01)
+[![Solmar City](https://img.shields.io/badge/Solmar_City-open--world-green)](https://make.fun/competitions/gta6-01)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Bounty:** [gta6-01 — Make GTA 6](https://make.fun/bounty/gta6-01) on
-[make.fun](https://make.fun) — $1,666 USDC pot, top 100 entries paid.
-Entries close 24 Nov 2026, results 10 Dec 2026.
+Built for the [make.fun gta6-01 bounty](https://make.fun/competitions/gta6-01) — "Make GTA 6".
+A fan-made original 2D top-down open-world crime game. No Rockstar assets, no GTA VI
+content: the city, the story, the music and the art are all original.
 
-Mara Voss is back in Solmar City. Steal cars, dodge the cops, run twelve
-story jobs, sail the harbor, and flip the radio while you do it. A 2D
-top-down open-world crime game in plain HTML + ES modules — no build step,
-no network, no Rockstar assets.
+You are Mara Voss, new in Solmar City. Steal cars, outrun the police, run jobs for
+cash, and climb from street hustler to ruler of the city.
 
-## What is in the game
+## How to play
 
-- **12 story missions** ($200 – $10,000 each, $34,600 in total): Hot Wheels,
-  Harbor Run, Heat Wave, Turf War, The Solmar Score, Harbor Lights, On Air,
-  The Grand Finale, Night Shift at the Docks, King of Solmar, Midnight Run,
-  and The Solmar Crown. The story ends after M12 — Mara owns the city.
-- **Driving:** steal any car with E, handbrake with Space (tyre smoke and a
-  slide), traffic, pedestrians, ramming, and a live minimap.
-- **Wanted system:** 0–5 stars. Steal, shoot, or hit a pedestrian and the
-  cops come; at 3+ stars they set up roadblocks, at 4–5 a helicopter
-  spotlights you from above. Get busted or wasted and you wake up at the
-  Safehouse.
-- **Boats:** 6 boardable boats in the harbor (including a red speedboat, a
-  white yacht, and a yellow jetski) — press E on the beach to board, E
-  again to step ashore. Boat speed shows in knots.
-- **Radio:** 5 synth stations on Q — SOLMAR FM, HARBOR 98, NEON NIGHTS,
-  PALM DRIVE, MIDNIGHT DRIVE — all synthesized live with WebAudio.
-- **Side jobs:** taxi fares while driving (pick up, deliver in 45s,
-  $80–$150) and 12 hidden Solmar Coins worth $25 each.
-- **Combat:** click to shoot, Space to punch, gang shootouts with health
-  bars, cash / health / ammo pickups on the street.
-- **Save:** progress autosaves to localStorage; Continue on the title
-  screen picks it back up.
+Open `game/index.html` in a browser, or run `node serve.ts` and visit
+http://localhost:8080. No build step, no network needed.
 
-## Controls
+- **WASD / arrows** — walk (hold Shift to run), drive, sail
+- **Mouse** — aim, hold left click to shoot
+- **E** — steal a car, board a boat, grab a crate, crack the bank vault
+- **Space** — punch on foot, handbrake while driving (tyre smoke + slide)
+- **Q** — cycle the in-game radio (5 stations)
+- **M** — mute, **P / Esc** — pause (progress auto-saves)
+- **Enter** — New Game from the title screen
 
-| Key | What it does |
-| --- | --- |
-| WASD / arrows | Move / drive |
-| Mouse | Aim, click to shoot |
-| E | Steal car, board boat, grab crate / vault, get out |
-| Space | Punch on foot, handbrake while driving |
-| Q | Change radio station |
-| M | Mute |
-| Shift | Run |
-| P / Esc | Pause |
+## What's in the game
 
-## Run it
+- **12 story missions, $34,600 in rewards** (plus the $50 you start with, so
+  $34,650 in the bank when the story ends) — Hot Wheels ($200), Harbor Run
+  ($400), Heat Wave ($600), Turf War ($800), The Solmar Score ($3,500), Harbor
+  Lights ($900), On Air ($1,200), The Grand Finale ($5,000), Night Shift at the
+  Docks ($1,500), King of Solmar ($7,500), Midnight Run ($3,000), and the finale
+  The Solmar Crown ($10,000). Finish M12 and the story is complete.
+- **5 radio stations** (Q to cycle, synth audio made with WebAudio): SOLMAR FM
+  sunny pop, HARBOR 98 late-night swing, NEON NIGHTS synthwave, PALM DRIVE sunset
+  chillwave, MIDNIGHT DRIVE night cruise. The current station shows in the HUD.
+- **6 drivable boats** in the harbor: three moored runabouts, a red speedboat,
+  a white yacht, and a yellow jetski (the fastest). E boards, E steps ashore.
+  Boat speed shows in knots on the HUD.
+- **Taxi fares** — while driving, a waving passenger appears; pick them up and
+  deliver them in time for $80–$150.
+- **12 hidden Solmar Coins** — walk or drive over one for +$25 each. HUD counter.
+- **Deeper police AI** — roadblocks of parked cruisers at 3+ wanted stars, and a
+  police helicopter with a spotlight circling you at 4–5 stars. Wanted stars
+  decay only after you stay clean for a while.
+- **A living city** — 16 traffic cars (sedan, van, taxi, truck, sport), 34
+  pedestrians, pickups (cash, health, ammo), gang enemies, a minimap, and a
+  save system (Continue from the title screen).
 
-```sh
-node serve.ts
-# game/ is on http://localhost:8080
-```
+## Screenshots
 
-Open http://localhost:8080, press Enter or click New Game. Screenshots
-are staged with `?shot=start|city|chase|harbor&seed=1` — shot 4, the
-harbor, shows Mara in a boat with the radio on.
+Four staged shots (`game/src/shots.json`): title screen, city driving, a 4-star
+police chase with roadblocks and helicopter, and the harbor scene — Mara in a
+boat with the radio on.
 
-## Layout
+## Structure
 
-- `game/index.html` — canvas + module entry point
-- `game/src/` — one ES module per job: `world` (simulation), `render`
-  (drawing + HUD), `missions` (+ `missions2/3/4`, the 12 jobs), `city`,
-  `traffic`, `police` / `police2` (cruisers, roadblocks, helicopter),
-  `combat`, `boats`, `radio`, `sidejobs`, `audio`, `input`, `save`,
-  `random`, `util`, `config`, `shots`
-- `main.ts` — the make.fun hand-in, copies `game/` + `screenshots/` and
-  writes `dossier.json`
-- `serve.ts` — the dev server
+- `game/index.html` + `game/src/*.js` — the game, one ES module per job
+  (missions, world, render, combat, traffic, police, boats, radio, sidejobs…)
+- `serve.ts` — serves `game/` on http://localhost:8080
+- `main.ts` — hand-in entry point (copies the game + screenshots, builds the dossier)
+- `screenshots/` — the four staged shots
 
-## Honest notes
+## License
 
-- This is a v2 resubmission attempt. The v1 entry (judge 985.953, rank
-  642/3,803, top-100 line 989.409) is still the live entry until a v2
-  submit is accepted.
-- The v1 mission payouts M2–M5 are reconstructed from the v1 titles —
-  only M1 ($200) is a proven number. Total story payout $34,600 + $50
-  starting cash = $34,650.
-- Everything is original code and placeholder art. No GTA assets, no
-  real places, no real people.
+MIT. Original work, made for the make.fun bounty.

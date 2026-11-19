@@ -1,43 +1,41 @@
-// missions4.js — story missions M11–M12 (the attempt-3 batch).
-// The last two jobs. M12 pays $10,000 and ends the story: after it,
-// storyComplete is true and Mara free-roams Solmar City.
-// Same pattern as missions2/3.js: append to MISSIONS, idempotent, only
-// proven objective kinds (reach / defeat / board / interact / escape).
-
+// missions4.js — Solmar City story missions M11–M12 (attempt-3 additions).
+// Written from the attempt-3 spec only. Appends to MISSIONS; idempotent.
+// M12 is the story finale: after it, storyComplete is true.
+// Uses only proven objective kinds: reach / defeat / board / interact / escape.
 import { MISSIONS } from './missions.js';
 
 const EXTRA = [
   {
-    id: 'm11-midnight-run',
+    id: 'midnight-run',
     title: 'Midnight Run',
-    briefing: 'One more night at the Docks. Clear the Rats, run the boat out to the island, and be gone before dawn.',
+    briefing: 'Tengah malam, Docks sepi — kecuali Harbor Rats. Bereskan, lalu berlayar ke pulau.',
     reward: 3000,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Go to the Solmar Docks' },
-      { kind: 'defeat', count: 4, text: 'Defeat 4 Harbor Rats' },
-      { kind: 'reach', key: 'marina', text: 'Go to the Solmar Marina' },
-      { kind: 'board', text: 'Board a boat (walk up to one and press E)' },
-      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
+      { kind: 'reach', key: 'docks', text: 'Pergi ke Solmar Docks' },
+      { kind: 'defeat', count: 4, text: 'Kalahkan 4 Harbor Rats' },
+      { kind: 'reach', key: 'marina', text: 'Pergi ke Solmar Marina' },
+      { kind: 'board', text: 'Naik perahu (E di dekat perahu)' },
+      { kind: 'reach', key: 'island', text: 'Berlayar ke Gull Island' },
     ],
   },
   {
-    id: 'm12-solmar-crown',
+    id: 'solmar-crown',
     title: 'The Solmar Crown',
-    briefing: 'The crown job. Hit the bank, drop six guards, lose the whole city, and park it at Ray\u2019s. After this, Solmar is yours.',
+    briefing: 'Mahkota Solmar: satu aksi terakhir di bank, lawan penjaga, kabur, pulang ke bengkel.',
     reward: 10000,
     objectives: [
-      { kind: 'reach', key: 'bank', text: 'Go to the Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
-      { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to the Safehouse' },
-      { kind: 'reach', key: 'garage', text: 'Park it at Ray\u2019s Garage' },
+      { kind: 'reach', key: 'bank', text: 'Pergi ke Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Bobol brankas (E di depan bank)' },
+      { kind: 'defeat', count: 6, text: 'Kalahkan 6 penjaga bank' },
+      { kind: 'escape', key: 'safehouse', text: 'Kabur ke Safehouse Mara' },
+      { kind: 'reach', key: 'garage', text: 'Akhiri di Ray\u2019s Garage' },
     ],
   },
 ];
 
 export function registerMissions4() {
-  for (const def of EXTRA) {
-    if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
+  for (const m of EXTRA) {
+    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
   }
   return MISSIONS.length;
 }

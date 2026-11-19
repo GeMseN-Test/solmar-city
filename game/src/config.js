@@ -1,116 +1,90 @@
 // config.js — every tuning number for Solmar City in one place.
-// Nothing here reads game state; other modules import these values
-// so a balance tweak only ever needs one edit.
-
-// The world is 2880 wide, 2160 tall. The sea is the strip at the
-// bottom (y past 2100); the beach is the strip just above it.
 export const WORLD_W = 2880;
 export const WORLD_H = 2160;
-export const WORLD_WIDTH = WORLD_W;
-export const WORLD_HEIGHT = WORLD_H;
 export const SEA_TOP = 2100;
 export const BEACH_TOP = 2020;
-
-// Streets form a grid: vertical roads at x = 180, 540, ... 2700 and
-// horizontal roads at y = 180, 540, ... 1980. Each road is 76px wide.
 export const GRID_PITCH = 360;
-export const ROAD_X0 = 180;
-export const ROAD_Y0 = 180;
-export const ROAD_X1 = 2700;
-export const ROAD_Y1 = 1980;
+export const ROAD_X_MIN = 180;
+export const ROAD_X_MAX = 2700;
+export const ROAD_Y_MIN = 180;
+export const ROAD_Y_MAX = 1980;
 export const ROAD_WIDTH = 76;
-export const NODE_COUNT_X = 8;
-export const NODE_COUNT_Y = 6;
 
-// Cars: how fast they speed up, brake, reverse and turn.
-export const CAR = {
-  accel: 640,
-  brake: 980,
-  reverse: 420,
-  maxSpeed: 560,
-  maxReverse: 190,
-  turnRate: 2.7,
-  grip: 3.2,
-  drag: 0.55,
-  length: 46,
-  width: 22,
-  ramDamage: 18,
-};
+export const PLAYER_WALK = 175;
+export const PLAYER_RUN = 268;
+export const PLAYER_RADIUS = 11;
+export const PLAYER_SPAWN_X = 1420;
+export const PLAYER_SPAWN_Y = 1230;
+export const PLAYER_SPAWN_ANGLE = -Math.PI / 2;
 
-// The player on foot and with the pistol.
-export const PLAYER = {
-  walkSpeed: 175,
-  runSpeed: 268,
-  radius: 11,
-  spawnX: 1420,
-  spawnY: 1230,
-  spawnAngle: -Math.PI / 2,
-  maxHp: 100,
-  gunDamage: 34,
-  gunRange: 520,
-  bulletSpeed: 760,
-  startAmmo: 48,
-  maxAmmo: 240,
-  gunCooldown: 0.22,
-  punchDamage: 26,
-  punchRange: 36,
-  punchArc: 1.1,
-  punchCooldown: 0.45,
-};
+export const CAR_ACCEL = 640;
+export const CAR_BRAKE = 980;
+export const CAR_REVERSE = 420;
+export const CAR_MAX_SPEED = 560;
+export const CAR_MAX_REVERSE = 190;
+export const CAR_TURN_RATE = 2.7;
+export const CAR_GRIP = 3.2;
+export const CAR_DRAG = 0.55;
+export const CAR_LENGTH = 46;
+export const CAR_WIDTH = 22;
+export const CAR_RAM_DAMAGE = 18;
 
-// Wanted stars: what earns them, how they fade, how the bust works.
-export const WANTED = {
-  max: 5,
-  stealCar: 1,
-  shoot: 1,
-  hitPedestrian: 1,
-  killPedestrian: 2,
-  decayDelay: 12,
-  decayEvery: 8,
-  copChaseRadius: 900,
-  bustSeconds: 1.6,
-};
+export const GUN_DAMAGE = 34;
+export const GUN_RANGE = 520;
+export const BULLET_SPEED = 760;
+export const START_AMMO = 48;
+export const MAX_AMMO = 240;
+export const PUNCH_DAMAGE = 26;
+export const PUNCH_RANGE = 36;
+export const PUNCH_ARC = 1.1;
+export const GUN_COOLDOWN = 0.22;
+export const PUNCH_COOLDOWN = 0.45;
+export const ENEMY_BULLET_DAMAGE = 9;
+export const ENEMY_BULLET_SPEED = 540;
 
-// Money and crowds.
+export const WANTED_MAX = 5;
+export const WANTED_STEAL_CAR = 1;
+export const WANTED_SHOOT = 1;
+export const WANTED_HIT_PED = 1;
+export const WANTED_KILL_PED = 2;
+export const WANTED_DECAY_DELAY = 12;
+export const WANTED_DECAY_EVERY = 8;
+export const COP_CHASE_RADIUS = 900;
+export const BUST_SECONDS = 1.6;
+
 export const MONEY_START = 50;
 export const TRAFFIC_CARS = 16;
 export const PEDESTRIANS = 34;
+export const PICKUP_CASH_COUNT = 14;
+export const PICKUP_CASH_VALUE = 60;
+export const PICKUP_HEALTH_COUNT = 8;
+export const PICKUP_HEALTH_VALUE = 40;
+export const PICKUP_AMMO_COUNT = 8;
+export const PICKUP_AMMO_VALUE = 36;
 
-// Pickups scattered around the city: 14 cash ($60 each), 8 health
-// (+40 HP each), 8 ammo (+36 bullets each).
-export const PICKUPS = {
-  cash: { count: 14, value: 60 },
-  health: { count: 8, value: 40 },
-  ammo: { count: 8, value: 36 },
-};
-
-// Local-storage key for the save game.
 export const SAVE_KEY = 'solmar-city-save-v1';
 
-// One object with everything, for callers that prefer a single import.
-export const CONFIG = {
-  WORLD_W,
-  WORLD_H,
-  WORLD_WIDTH,
-  WORLD_HEIGHT,
-  SEA_TOP,
-  BEACH_TOP,
-  GRID_PITCH,
-  ROAD_X0,
-  ROAD_Y0,
-  ROAD_X1,
-  ROAD_Y1,
-  ROAD_WIDTH,
-  NODE_COUNT_X,
-  NODE_COUNT_Y,
-  CAR,
-  PLAYER,
-  WANTED,
-  MONEY_START,
-  TRAFFIC_CARS,
-  PEDESTRIANS,
-  PICKUPS,
-  SAVE_KEY,
-};
+export const BOAT_BASE_SPEED = 320;
+export const BOAT_ACCEL = 300;
+export const BOAT_TURN_RATE = 1.6;
 
+export const COIN_COUNT = 12;
+export const COIN_VALUE = 25;
+export const FARE_MIN_PAY = 80;
+export const FARE_MAX_PAY = 150;
+export const FARE_TIME_LIMIT = 45;
+export const FARE_PICKUP_RADIUS = 60;
+
+export const CONFIG = {
+  WORLD_W, WORLD_H, SEA_TOP, BEACH_TOP, GRID_PITCH,
+  ROAD_X_MIN, ROAD_X_MAX, ROAD_Y_MIN, ROAD_Y_MAX, ROAD_WIDTH,
+  PLAYER_WALK, PLAYER_RUN, PLAYER_RADIUS,
+  CAR_ACCEL, CAR_BRAKE, CAR_REVERSE, CAR_MAX_SPEED, CAR_MAX_REVERSE,
+  CAR_TURN_RATE, CAR_GRIP, CAR_DRAG, CAR_LENGTH, CAR_WIDTH, CAR_RAM_DAMAGE,
+  GUN_DAMAGE, GUN_RANGE, BULLET_SPEED, START_AMMO, MAX_AMMO,
+  PUNCH_DAMAGE, PUNCH_RANGE, PUNCH_ARC,
+  WANTED_MAX, WANTED_DECAY_DELAY, WANTED_DECAY_EVERY,
+  COP_CHASE_RADIUS, BUST_SECONDS,
+  MONEY_START, TRAFFIC_CARS, PEDESTRIANS, SAVE_KEY,
+};
 export default CONFIG;
