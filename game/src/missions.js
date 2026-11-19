@@ -1,16 +1,88 @@
-// missions.js — Solmar City story missions (M1–M5) + mission engine.
-// Written from the v2 spec only. 12 missions total once missions2/3/4
-// register theirs. Objective kinds: steal, reach, collect, wanted, lose,
-// defeat, board, interact, escape.
+// missions.js — Solmar City story missions M1–M5 + the mission engine.
+// Written from the v2 spec only. Objective kinds: steal, reach, collect,
+// wanted, lose, defeat, board, interact, escape. The engine never
+// auto-starts the next mission: main.js starts it on MISSION_COMPLETE.
+
 import { spawnGang } from './combat.js';
 import { nearestTrafficCar } from './traffic.js';
-import { nearestBoat, boardBoat, exitBoat } from './boats.js';
+import { boardBoat, exitBoat, nearestBoat } from './boats.js';
 
+export const EV_STEAL = 512;
+export const EV_VAULT = 256;
+export const EV_PICKUP = 4;
 export const EV_MISSION = 16;
 export const EV_MISSION_COMPLETE = 1024;
-export const EV_VAULT = 256;
-export const EV_STEAL = 512;
-export const EV_PICKUP = 4;
+
+const REACH_RADIUS = 90;
+const INTERACT_RADIUS = 70;
+const CRATE_RADIUS = 48;
+const VAULT_RADIUS = 110;
+
+// ---------------------------------------------------------------------------
+// M1–M5 — the original five story missions.
+// ---------------------------------------------------------------------------
+
+export const MISSIONS = [
+  {
+    id: 'm1-hot-wheels',
+    title: 'Hot Wheels',
+    briefing: 'Mara needs wheels. Steal a car, then bring it to Ray.',
+    reward: 200,
+    objectives: [
+      { kind: 'steal', text: 'Steal a car (walk up to one, press E)' },
+      { kind: 'reach', key: 'garage', text: "Drive to Ray's Garage" },
+    ],
+  },
+  {
+    id: 'm2-harbor-run',
+    title: 'Harbor Run',
+    briefing: 'Crates are waiting at the Docks. Grab them, run them to the Marina.',
+    reward: 400,
+    objectives: [
+      { kind: 'reach', key: 'docks', text: 'Go to the Solmar Docks' },
+      { kind: 'collect', count: 3, text: 'Grab 3 crates (press E next to one)' },
+      { kind: 'reach', key: 'marina', text: 'Deliver the crates to the Marina' },
+    ],
+  },
+  {
+    id: 'm3-heat-wave',
+    title: 'Heat Wave',
+    briefing: 'The Vipers are talking. Shut three of them up, then shake the cops.',
+    reward: 600,
+    objectives: [
+      { kind: 'reach', key: 'turf', text: "Go to the Vipers' Turf" },
+      { kind: 'defeat', count: 3, text: 'Defeat 3 Vipers' },
+      { kind: 'lose', text: 'Lose the cops (get back to 0 stars)' },
+      { kind: 'reach', key: 'safehouse', text: "Get back to Mara's Safehouse" },
+    ],
+  },
+  {
+    id: 'm4-turf-war',
+    title: 'Turf War',
+    briefing: 'Take the Turf back. Four Vipers stand between you and Ray.',
+    reward: 800,
+    objectives: [
+      { kind: 'reach', key: 'turf', text: "Go to the Vipers' Turf" },
+      { kind: 'defeat', count: 4, text: 'Defeat 4 Vipers' },
+      { kind: 'reach', key: 'garage', text: "Return to Ray's Garage" },
+    ],
+  },
+  {
+    id: 'm5-solmar-score',
+    title: 'The Solmar Score',
+    briefing: 'The big one. Hit the Grand Solmar Bank vault, then vanish.',
+    reward: 3500,
+    objectives: [
+      { kind: 'reach', key: 'bank', text: 'Go to the Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
+      { kind: 'escape', key: 'safehouse', text: "Escape to Mara's Safehouse" },
+    ],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function dist(ax, ay, bx, by) {
   const dx = ax - bx;
@@ -23,282 +95,312 @@ export function landmark(state, key) {
   return state.city.landmarks[key] || null;
 }
 
-export function landmarkPos(state, key) {
-  const lm = landmark(state, key);
-  if (!lm) return null;
-  return { x: lm.x, y: lm.y, name: lm.name || lm.label || key, key };
-}
-
-// The five original story missions. Payouts probed live: M1 pays $200,
-// the finale M5 is the big score. M2–M4 rebuilt from the proven kinds.
-export const MISSIONS = [
-  {
-    id: 'hot-wheels',
-    title: 'Hot Wheels',
-    briefing: 'Mara butuh mobil. Curi satu di jalan, lalu bawa ke bengkel Ray.',
-    reward: 200,
-    objectives: [
-      { kind: 'steal', text: 'Curi sebuah mobil (E di dekat mobil)' },
-      { kind: 'reach', key: 'garage', text: 'Bawa mobil ke Ray\u2019s Garage' },
-    ],
-  },
-  {
-    id: 'harbor-run',
-    title: 'Harbor Run',
-    briefing: 'Ada peti titipan di Docks. Ambil tiga peti, antar ke Marina.',
-    reward: 400,
-    objectives: [
-      { kind: 'reach', key: 'docks', text: 'Pergi ke Solmar Docks' },
-      { kind: 'collect', count: 3, text: 'Ambil 3 peti di Docks (E)' },
-      { kind: 'reach', key: 'marina', text: 'Antar ke Solmar Marina' },
-    ],
-  },
-  {
-    id: 'heat-wave',
-    title: 'Heat Wave',
-    briefing: 'Vipers mulai berulah di Turf. Datangi mereka, beri pelajaran.',
-    reward: 600,
-    objectives: [
-      { kind: 'reach', key: 'turf', text: 'Pergi ke Vipers\u2019 Turf' },
-      { kind: 'defeat', count: 3, text: 'Kalahkan 3 Viper' },
-      { kind: 'reach', key: 'safehouse', text: 'Kembali ke Safehouse Mara' },
-    ],
-  },
-  {
-    id: 'turf-war',
-    title: 'Turf War',
-    briefing: 'Rebut Turf dari Vipers, lalu menghilang sampai polisi lupa.',
-    reward: 800,
-    objectives: [
-      { kind: 'reach', key: 'turf', text: 'Pergi ke Vipers\u2019 Turf' },
-      { kind: 'defeat', count: 4, text: 'Kalahkan 4 Viper' },
-      { kind: 'lose', text: 'Hilangkan bintang wanted sampai 0' },
-      { kind: 'reach', key: 'safehouse', text: 'Kembali ke Safehouse Mara' },
-    ],
-  },
-  {
-    id: 'solmar-score',
-    title: 'The Solmar Score',
-    briefing: 'Bank Grand Solmar. Bobol brankasnya, lalu kabur ke Safehouse.',
-    reward: 3500,
-    objectives: [
-      { kind: 'reach', key: 'bank', text: 'Pergi ke Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Bobol brankas (E di depan bank)' },
-      { kind: 'escape', key: 'safehouse', text: 'Kabur ke Safehouse Mara' },
-    ],
-  },
-];
-
-export function currentObjective(state) {
-  const def = state.mission;
-  if (!def) return null;
-  return def.objectives[state.missionObjective] || null;
-}
-
-// Where the player should go right now: a {x, y, name} point or null.
-export function missionMarker(state) {
-  const def = state.mission;
-  if (!def) return null;
-  const obj = currentObjective(state);
-  if (!obj) return null;
-  if (obj.kind === 'reach' || obj.kind === 'escape') {
-    return landmarkPos(state, obj.key);
-  }
-  if (obj.kind === 'interact') {
-    return landmarkPos(state, obj.key || 'bank');
-  }
-  if (obj.kind === 'board') {
-    const boat = state.boats && state.boats.length
-      ? state.boats.reduce((best, b) => {
-          if (!best) return b;
-          return dist(state.player.x, state.player.y, b.x, b.y)
-            < dist(state.player.x, state.player.y, best.x, best.y) ? b : best;
-        }, null)
-      : null;
-    if (boat) return { x: boat.x, y: boat.y, name: 'Perahu', key: 'boat' };
-    return landmarkPos(state, 'docks');
-  }
-  if (obj.kind === 'collect') {
-    const crate = (state.crates || []).find((c) => !c.taken);
-    if (crate) return { x: crate.x, y: crate.y, name: 'Peti', key: 'crate' };
-    return landmarkPos(state, 'docks');
-  }
-  if (obj.kind === 'steal') {
-    const car = nearestStealableCar(state);
-    if (car) return { x: car.x, y: car.y, name: 'Mobil', key: 'car' };
-    return null;
-  }
-  if (obj.kind === 'defeat') {
-    const firstReach = def.objectives.find((o) => o.kind === 'reach');
-    if (firstReach) return landmarkPos(state, firstReach.key);
-    return null;
+// First reach objective of a mission definition (gang spawn anchor).
+function firstReachLandmark(state, def) {
+  for (const obj of def.objectives) {
+    if (obj.kind === 'reach' && obj.key) {
+      const lm = landmark(state, obj.key);
+      if (lm) return lm;
+    }
   }
   return null;
 }
 
-export function nearestStealableCar(state) {
-  if (!state.traffic) return null;
-  const car = nearestTrafficCar(state.traffic, state.player.x, state.player.y, 64);
-  return car || null;
+// Spawn the gang for a mission's defeat objective, around the first
+// reach landmark. Shared by startMission and by missions2 setupV2Mission.
+export function spawnMissionGang(state, def) {
+  const defeat = def.objectives.find((o) => o.kind === 'defeat');
+  if (!defeat) return;
+  const lm = firstReachLandmark(state, def);
+  if (!lm) return;
+  spawnGang(state, lm.x, lm.y, defeat.count || 1);
 }
 
-export function exitCar(state) {
-  const p = state.player;
-  if (!p.inCar || !p.car) return false;
-  const car = p.car;
-  car.speed = 0;
-  // Step out sideways so the player does not stand inside the car.
-  p.x = car.x + Math.cos(p.angle + Math.PI / 2) * 34;
-  p.y = car.y + Math.sin(p.angle + Math.PI / 2) * 34;
-  if (state.traffic && state.traffic.cars) state.traffic.cars.push(car);
-  p.inCar = false;
-  p.car = null;
-  return true;
+// Lay out crates for a collect objective around the first reach landmark.
+function spawnCrates(state, def) {
+  const collect = def.objectives.find((o) => o.kind === 'collect');
+  if (!collect) return;
+  const lm = firstReachLandmark(state, def);
+  if (!lm) return;
+  const spots = [
+    [0, -70], [64, -20], [-64, -20], [0, 70],
+    [64, 60], [-64, 60], [110, 0], [-110, 0],
+  ];
+  const n = collect.count || 3;
+  state.crates = [];
+  for (let i = 0; i < n; i++) {
+    const s = spots[i % spots.length];
+    state.crates.push({ x: lm.x + s[0], y: lm.y + s[1], taken: false });
+  }
 }
 
-// Start mission `index`: reset per-mission counters, spawn the gang for a
-// defeat objective around the FIRST reach landmark, drop crates for a
-// collect objective near that same landmark.
+// ---------------------------------------------------------------------------
+// Mission lifecycle
+// ---------------------------------------------------------------------------
+
 export function startMission(state, index) {
   const def = MISSIONS[index];
   if (!def) return false;
   state.missionIndex = index;
-  state.mission = def;
-  state.missionObjective = 0;
-  state.killsAtStart = state.kills || 0;
-  state.missionCollected = 0;
-  state.vaultGrabbed = false;
-  state.loseArmed = false;
-  state.loseSince = state.time || 0;
+  state.mission = {
+    index,
+    objectiveIndex: 0,
+    killsAtStart: state.kills || 0,
+    vaultGrabbed: false,
+    interacted: false,
+    done: false,
+  };
   state.crates = [];
-  const firstReach = def.objectives.find((o) => o.kind === 'reach');
-  const defeat = def.objectives.find((o) => o.kind === 'defeat');
-  if (defeat && firstReach) {
-    const pos = landmarkPos(state, firstReach.key);
-    if (pos) spawnGang(state, pos.x, pos.y, defeat.count || 3);
-  }
-  const collect = def.objectives.find((o) => o.kind === 'collect');
-  if (collect && firstReach) {
-    const pos = landmarkPos(state, firstReach.key);
-    if (pos) {
-      const spots = [[-70, 30], [40, -60], [90, 70], [-20, 90], [110, -20]];
-      const n = collect.count || 3;
-      for (let i = 0; i < n; i++) {
-        state.crates.push({
-          x: pos.x + spots[i % spots.length][0],
-          y: pos.y + spots[i % spots.length][1],
-          taken: false,
-        });
-      }
-    }
-  }
+  spawnCrates(state, def);
+  spawnMissionGang(state, def);
   return true;
 }
 
-// Advance the current objective when its condition is met. Returns an
-// events bitmask: 16 on objective advance, 1024 on mission complete.
-export function updateMission(state) {
-  const def = state.mission;
-  if (!def || state.storyComplete) return 0;
-  const obj = def.objectives[state.missionObjective];
-  if (!obj) return 0;
-  const p = state.player;
-  let done = false;
-  if (obj.kind === 'reach' || obj.kind === 'escape') {
-    const pos = landmarkPos(state, obj.key);
-    if (pos && dist(p.x, p.y, pos.x, pos.y) < 80) done = true;
-  } else if (obj.kind === 'board') {
-    if (p.inBoat) done = true;
-  } else if (obj.kind === 'defeat') {
-    if ((state.kills || 0) - (state.killsAtStart || 0) >= (obj.count || 1)) done = true;
-  } else if (obj.kind === 'interact') {
-    if (state.vaultGrabbed) done = true;
-  } else if (obj.kind === 'steal') {
-    if (p.inCar) done = true;
-  } else if (obj.kind === 'collect') {
-    if ((state.missionCollected || 0) >= (obj.count || 1)) done = true;
-  } else if (obj.kind === 'wanted') {
-    if ((state.wanted || 0) >= (obj.level || 1)) done = true;
-  } else if (obj.kind === 'lose') {
-    if ((state.wanted || 0) > 0) state.loseArmed = true;
-    // Already clean counts too once you have lain low a moment.
-    if (state.loseArmed && (state.wanted || 0) === 0) done = true;
-    else if ((state.wanted || 0) === 0 && (state.time || 0) - (state.loseSince || 0) > 1) done = true;
-  }
-  if (!done) return 0;
-  state.missionObjective += 1;
-  state.loseSince = state.time || 0;
-  if (state.missionObjective >= def.objectives.length) {
-    state.money += def.reward;
-    state.missionsDone = (state.missionsDone || 0) + 1;
-    state.vaultGrabbed = false;
-    // Point at the next mission but do NOT start it here: the caller
-    // (main.js on MISSION_COMPLETE, or an explicit startMission) starts
-    // it, so a finished mission reads as done instead of auto-advancing.
-    state.missionIndex += 1;
-    state.mission = null;
-    if (state.missionIndex >= MISSIONS.length) {
-      state.storyComplete = true;
-      return EV_MISSION_COMPLETE;
-    }
-    return EV_MISSION_COMPLETE;
-  }
-  return EV_MISSION;
+export function currentObjective(state) {
+  if (!state.mission || state.mission.done) return null;
+  const def = MISSIONS[state.mission.index];
+  if (!def) return null;
+  return def.objectives[state.mission.objectiveIndex] || null;
 }
 
-// The E key. Order matters: exit boat/car first, then crates (a crate next
-// to a parked car must win over stealing), then the bank vault, then
-// boarding a boat, then stealing a car. Returns an events bitmask.
+export function currentMissionDef(state) {
+  if (!state.mission) return null;
+  return MISSIONS[state.mission.index] || null;
+}
+
+// Where the player should go next: a landmark, a boat, or null.
+export function missionMarker(state) {
+  const obj = currentObjective(state);
+  if (!obj) return null;
+  if (obj.kind === 'reach' || obj.kind === 'escape' || obj.kind === 'interact') {
+    return landmark(state, obj.key);
+  }
+  if (obj.kind === 'board') {
+    const boat = nearestBoat(state, state.player.x, state.player.y);
+    if (boat) return { x: boat.x, y: boat.y, name: 'Boat' };
+    if (state.boats && state.boats.length) {
+      const b = state.boats[0];
+      return { x: b.x, y: b.y, name: 'Boat' };
+    }
+    return null;
+  }
+  if (obj.kind === 'defeat') {
+    const lm = firstReachLandmark(state, currentMissionDef(state));
+    return lm;
+  }
+  return null;
+}
+
+function objectiveDone(state, obj) {
+  const p = state.player;
+  switch (obj.kind) {
+    case 'steal':
+      return !!p.inCar;
+    case 'reach':
+    case 'escape': {
+      const lm = landmark(state, obj.key);
+      if (!lm) return false;
+      const r = obj.radius || REACH_RADIUS;
+      return dist(p.x, p.y, lm.x, lm.y) < r;
+    }
+    case 'collect': {
+      const taken = (state.crates || []).filter((c) => c.taken).length;
+      return taken >= (obj.count || 1);
+    }
+    case 'defeat': {
+      const kills = (state.kills || 0) - (state.mission.killsAtStart || 0);
+      return kills >= (obj.count || 1);
+    }
+    case 'board':
+      return !!p.inBoat;
+    case 'interact':
+      return !!(state.mission && (state.mission.vaultGrabbed || state.mission.interacted));
+    case 'wanted':
+      return (state.wanted || 0) >= (obj.level || 1);
+    case 'lose':
+      return (state.wanted || 0) === 0;
+    default:
+      return false;
+  }
+}
+
+// Advance objectives, pay the reward on completion. Returns an event
+// bitmask: EV_MISSION (16) when an objective completes,
+// EV_MISSION_COMPLETE (1024) when the whole mission completes.
+// NEVER starts the next mission — main.js does that on MISSION_COMPLETE.
+export function updateMission(state) {
+  if (!state.mission || state.mission.done) return 0;
+  const def = MISSIONS[state.mission.index];
+  if (!def) return 0;
+  const obj = def.objectives[state.mission.objectiveIndex];
+  if (!obj) return 0;
+  if (!objectiveDone(state, obj)) return 0;
+
+  state.mission.objectiveIndex += 1;
+  if (state.mission.objectiveIndex < def.objectives.length) {
+    return EV_MISSION;
+  }
+
+  // Mission complete.
+  state.money = (state.money || 0) + def.reward;
+  state.missionsDone = (state.missionsDone || 0) + 1;
+  const isLast = state.mission.index >= MISSIONS.length - 1;
+  state.mission.done = true;
+  state.banner = {
+    text: def.title + ' — $' + def.reward.toLocaleString('en-US'),
+    sub: isLast ? 'STORY COMPLETE — Solmar is yours, Mara.' : 'Mission complete',
+    timer: 3.2,
+    story: isLast,
+  };
+  if (isLast) state.storyComplete = true;
+  state.mission = null;
+  state.crates = [];
+  return EV_MISSION_COMPLETE;
+}
+
+// ---------------------------------------------------------------------------
+// Interaction (E key)
+// Order matters: exit vehicle first, then crates, then the vault, then
+// boats, then cars. A crate parked next to a car must stay reachable.
+// ---------------------------------------------------------------------------
+
 export function tryInteract(state) {
   const p = state.player;
+
+  // On a boat: step ashore.
   if (p.inBoat) {
     exitBoat(state);
     return 0;
   }
+  // In a car: get out, the car stays parked where it is.
   if (p.inCar) {
     exitCar(state);
     return 0;
   }
-  const crate = (state.crates || []).find(
-    (c) => !c.taken && dist(p.x, p.y, c.x, c.y) < 48,
-  );
-  if (crate) {
-    crate.taken = true;
-    state.missionCollected = (state.missionCollected || 0) + 1;
-    return EV_PICKUP;
-  }
+
+  // Grab a mission crate.
   const obj = currentObjective(state);
-  const bank = landmarkPos(state, 'bank');
-  if (
-    obj && obj.kind === 'interact' && bank
-    && dist(p.x, p.y, bank.x, bank.y) < 110 && !state.vaultGrabbed
-  ) {
-    state.vaultGrabbed = true;
-    state.wanted = 4;
-    state.wantedGainAt = state.time || 0;
-    state.wantedTick = 0;
-    return EV_VAULT;
+  if (obj && obj.kind === 'collect' && state.crates) {
+    let best = null;
+    let bestD = CRATE_RADIUS;
+    for (const c of state.crates) {
+      if (c.taken) continue;
+      const d = dist(p.x, p.y, c.x, c.y);
+      if (d < bestD) {
+        best = c;
+        bestD = d;
+      }
+    }
+    if (best) {
+      best.taken = true;
+      return EV_PICKUP;
+    }
   }
+
+  // Grab the bank vault (4 stars, NO instant money — the payout
+  // only lands when the mission completes).
+  if (obj && obj.kind === 'interact' && obj.key === 'bank') {
+    const bank = landmark(state, 'bank');
+    if (bank && dist(p.x, p.y, bank.x, bank.y) < VAULT_RADIUS) {
+      if (state.mission) state.mission.vaultGrabbed = true;
+      state.wanted = 4;
+      return EV_VAULT;
+    }
+  }
+
+  // Board a nearby boat.
   const boat = nearestBoat(state, p.x, p.y);
   if (boat) {
     boardBoat(state, boat);
     return 0;
   }
-  const car = nearestStealableCar(state);
-  if (car) {
-    const cars = state.traffic && state.traffic.cars;
-    if (cars) {
-      const i = cars.indexOf(car);
-      if (i >= 0) cars.splice(i, 1);
+
+  // Climb back into a car we already stole (free, it is ours now).
+  if (state.parkedCars) {
+    let best = null;
+    let bestD = INTERACT_RADIUS;
+    for (const car of state.parkedCars) {
+      const d = dist(p.x, p.y, car.x, car.y);
+      if (d < bestD) {
+        best = car;
+        bestD = d;
+      }
     }
-    p.inCar = true;
-    p.car = car;
-    p.angle = car.angle;
-    car.speed = 0;
+    if (best) {
+      const i = state.parkedCars.indexOf(best);
+      state.parkedCars.splice(i, 1);
+      enterCar(state, best);
+      return 0;
+    }
+  }
+
+  // Steal a traffic car (wanted +1).
+  const car = state.traffic
+    ? nearestTrafficCar(state.traffic, p.x, p.y, INTERACT_RADIUS)
+    : null;
+  if (car) {
+    const i = state.traffic.cars.indexOf(car);
+    if (i >= 0) state.traffic.cars.splice(i, 1);
+    enterCar(state, car);
     state.wanted = Math.min(5, (state.wanted || 0) + 1);
-    state.wantedGainAt = state.time || 0;
-    state.wantedTick = 0;
     return EV_STEAL;
   }
+
   return 0;
+}
+
+function enterCar(state, car) {
+  const p = state.player;
+  p.inCar = true;
+  p.car = car;
+  car.speed = 0;
+  p.x = car.x;
+  p.y = car.y;
+  p.angle = car.angle;
+  p.aimAngle = car.angle;
+}
+
+export function exitCar(state) {
+  const p = state.player;
+  const car = p.car;
+  if (!car) {
+    p.inCar = false;
+    return;
+  }
+  // Step out to the left side of the car.
+  const nx = -Math.sin(car.angle);
+  const ny = Math.cos(car.angle);
+  p.x = car.x + nx * 34;
+  p.y = car.y + ny * 34;
+  p.angle = car.angle;
+  p.aimAngle = car.angle;
+  p.inCar = false;
+  p.car = null;
+  car.speed = 0;
+  if (!state.parkedCars) state.parkedCars = [];
+  state.parkedCars.push(car);
+}
+
+// Nearest car the player could steal or re-enter, for the HUD prompt.
+export function nearestStealableCar(state) {
+  const p = state.player;
+  let best = null;
+  let bestD = 85;
+  if (state.parkedCars) {
+    for (const car of state.parkedCars) {
+      const d = dist(p.x, p.y, car.x, car.y);
+      if (d < bestD) {
+        best = { car, kind: 'parked' };
+        bestD = d;
+      }
+    }
+  }
+  if (state.traffic) {
+    const car = nearestTrafficCar(state.traffic, p.x, p.y, 85);
+    if (car) {
+      const d = dist(p.x, p.y, car.x, car.y);
+      if (!best || d < bestD) best = { car, kind: 'traffic' };
+    }
+  }
+  return best;
 }

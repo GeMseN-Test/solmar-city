@@ -1,6 +1,9 @@
-// shots.js — staged screenshot scenes for Solmar City.
-// Written from the v2 spec only. main.js reads ?shot=<name>&seed=1 and
-// calls stageShot(state, name) so each screenshot shows a real game state.
+// shots.js — Deterministic staged scenes for the 4 screenshots.
+// Written from the v2 spec only. stageShot(state, name) sets the world
+// up so a screenshot shows the named moment; main.js calls it when the
+// page loads with ?shot=<name>. Shot 4 is the harbor scene: M6 in a boat
+// with the radio on.
+
 import { startMission } from './missions.js';
 import { boardBoat } from './boats.js';
 import { stepPolice } from './police.js';
@@ -8,54 +11,68 @@ import { stepPolice2 } from './police2.js';
 
 export const SHOT_NAMES = ['start', 'city', 'chase', 'harbor'];
 
-export function shotQuery(name) {
-  return `?shot=${name}&seed=1`;
+function snapCamera(state) {
+  state.camera.x = state.player.x;
+  state.camera.y = state.player.y;
 }
 
-// Set the world up for a named scene. Returns the scene name.
+// Put the player in a traffic car on the road, ready to drive.
+function putPlayerInCar(state, x, y, angle) {
+  const car = state.traffic.cars[0];
+  if (!car) return;
+  state.traffic.cars.splice(0, 1);
+  car.x = x;
+  car.y = y;
+  car.angle = angle;
+  car.speed = 0;
+  state.player.inCar = true;
+  state.player.car = car;
+  state.player.x = x;
+  state.player.y = y;
+  state.player.angle = angle;
+  state.player.aimAngle = angle;
+}
+
 export function stageShot(state, name) {
-  const p = state.player;
   if (name === 'start') {
-    return 'start';
+    // Title screen — nothing to stage.
+    return;
   }
+
   if (name === 'city') {
-    // M2 in progress, Mara driving through the city.
+    // M2 Harbor Run, driving through the city.
+    state.money = 450;
+    putPlayerInCar(state, 900, 900, 0);
     startMission(state, 1);
-    const car = state.traffic && state.traffic.cars && state.traffic.cars[0];
-    if (car) {
-      state.traffic.cars.splice(0, 1);
-      p.inCar = true;
-      p.car = car;
-      p.x = car.x;
-      p.y = car.y;
-      p.angle = car.angle;
-      car.speed = 220;
-    } else {
-      p.x = 1420;
-      p.y = 1190;
-    }
-    return 'city';
+    snapCamera(state);
+    return;
   }
+
   if (name === 'chase') {
-    // M8 in progress, 4 stars: roadblocks + police heli overhead.
+    // M8 The Grand Finale, 4 stars: cruisers, roadblocks, heli.
+    state.money = 5000;
+    putPlayerInCar(state, 1400, 1000, 0);
     startMission(state, 7);
-    p.x = 1800;
-    p.y = 1190;
     state.wanted = 4;
-    state.wantedGainAt = state.time;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 8; i++) {
       stepPolice(state, 0.5);
       stepPolice2(state, 0.5);
     }
-    return 'chase';
+    snapCamera(state);
+    return;
   }
+
   if (name === 'harbor') {
-    // M6 in progress, Mara in a boat, HARBOR 98 on the radio.
+    // M6 Harbor Lights: Mara in a boat on the water, HARBOR 98 on.
+    state.money = 900;
     startMission(state, 5);
-    const boat = state.boats && state.boats[0];
-    if (boat) boardBoat(state, boat);
+    const boat = state.boats[0];
+    if (boat) {
+      boardBoat(state, boat);
+      boat.speed = 200;
+    }
     if (state.radio) state.radio.stationIndex = 1;
-    return 'harbor';
+    snapCamera(state);
+    return;
   }
-  return name;
 }

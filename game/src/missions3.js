@@ -1,40 +1,44 @@
-// missions3.js — Solmar City story missions M9–M10 (v2-retry additions).
-// Written from the v2-retry spec only. Appends to MISSIONS; idempotent.
-// Uses only proven objective kinds: reach / defeat / board / interact / escape.
+// missions3.js — Solmar City story missions M9–M10.
+// Written from the v2-retry spec only. Appended to MISSIONS by
+// registerMissions3() (idempotent — safe to call twice).
+
 import { MISSIONS } from './missions.js';
 
 const EXTRA = [
   {
-    id: 'night-shift',
+    id: 'm9-night-shift',
     title: 'Night Shift at the Docks',
-    briefing: 'Shift malam di Docks. Harbor Rats bikin onar — bereskan, lalu berlayar.',
+    briefing: 'Harbor Rats own the Docks after dark. Clear them, then sail out.',
     reward: 1500,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Pergi ke Solmar Docks' },
-      { kind: 'defeat', count: 4, text: 'Kalahkan 4 Harbor Rats' },
-      { kind: 'board', text: 'Naik perahu (E di dekat perahu)' },
-      { kind: 'reach', key: 'island', text: 'Berlayar ke Gull Island' },
-      { kind: 'reach', key: 'marina', text: 'Berlayar ke Solmar Marina' },
+      { kind: 'reach', key: 'docks', text: 'Go to the Solmar Docks' },
+      { kind: 'defeat', count: 4, text: 'Defeat 4 Harbor Rats' },
+      { kind: 'board', text: 'Board a boat (press E next to one)' },
+      { kind: 'reach', key: 'island', radius: 130, text: 'Sail to Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Sail back to the Marina' },
     ],
   },
   {
-    id: 'king-of-solmar',
+    id: 'm10-king-of-solmar',
     title: 'King of Solmar',
-    briefing: 'Jadi raja kota: kuasai Turf, bobol bank, kabur tanpa jejak.',
+    briefing: 'The Vipers, the Bank, one crown. Take it all.',
     reward: 7500,
     objectives: [
-      { kind: 'reach', key: 'turf', text: 'Pergi ke Vipers\u2019 Turf' },
-      { kind: 'defeat', count: 6, text: 'Kalahkan 6 Viper' },
-      { kind: 'reach', key: 'bank', text: 'Pergi ke Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Bobol brankas (E di depan bank)' },
-      { kind: 'escape', key: 'safehouse', text: 'Kabur ke Safehouse Mara' },
+      { kind: 'reach', key: 'turf', text: "Go to the Vipers' Turf" },
+      { kind: 'defeat', count: 6, text: 'Defeat 6 Vipers' },
+      { kind: 'reach', key: 'bank', text: 'Go to the Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
+      { kind: 'escape', key: 'safehouse', text: "Escape to Mara's Safehouse" },
     ],
   },
 ];
 
+let registered = false;
+
 export function registerMissions3() {
-  for (const m of EXTRA) {
-    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
+  if (registered) return;
+  registered = true;
+  for (const def of EXTRA) {
+    if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
   }
-  return MISSIONS.length;
 }

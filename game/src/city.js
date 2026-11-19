@@ -1,193 +1,259 @@
-// city.js — Solmar City map: roads, buildings, parks, landmarks.
-import { WORLD_W, WORLD_H, SEA_TOP, BEACH_TOP, GRID_PITCH, ROAD_WIDTH } from './config.js';
-import { randRange, randInt, pick } from './random.js';
+// Solmar City map: a road grid, 62 buildings, 3 parks, 8 landmarks
+// and the harbor sea strip at the bottom. Everything is derived from
+// the seeded RNG, so the same seed always builds the same city.
 
-export const ROAD_XS = [180, 540, 900, 1260, 1620, 1980, 2340, 2700];
-export const ROAD_YS = [180, 540, 900, 1260, 1620, 1980];
+import {
+  WORLD_W,
+  WORLD_H,
+  SEA_TOP,
+  ROAD_X,
+  ROAD_Y,
+  ROAD_WIDTH,
+  NODE_COUNT_X,
+  NODE_COUNT_Y,
+} from './config.js';
+import { clamp } from './util.js';
 
-export const LANDMARKS = {
-  garage: { key: 'garage', name: "Ray's Garage", x: 700, y: 830 },
-  safehouse: { key: 'safehouse', name: "Mara's Safehouse", x: 1420, y: 1190 },
-  bank: { key: 'bank', name: 'Grand Solmar Bank', x: 1800, y: 1190 },
-  turf: { key: 'turf', name: "Vipers' Turf", x: 700, y: 1790 },
-  docks: { key: 'docks', name: 'Solmar Docks', x: 360, y: 130 },
-  marina: { key: 'marina', name: 'Solmar Marina', x: 2520, y: 1930 },
-  radio: { key: 'radio', name: 'Solmar Radio', x: 2520, y: 130 },
-  island: { key: 'island', name: 'Gull Island', x: 1440, y: 2130 },
-};
+const HALF_ROAD = ROAD_WIDTH / 2;
 
-const BUILDING_COLORS = ['#3a4a6b', '#4a3a5e', '#5e4a3a', '#2e4a3f', '#54423a', '#3f4a5e'];
+export const LANDMARK_DEFS = [
+  { key: 'garage', name: "Ray's Garage", x: 700, y: 830 },
+  { key: 'safehouse', name: "Mara's Safehouse", x: 1420, y: 1190 },
+  { key: 'bank', name: 'Grand Solmar Bank', x: 1800, y: 1190 },
+  { key: 'turf', name: "Vipers' Turf", x: 700, y: 1790 },
+  { key: 'docks', name: 'Solmar Docks', x: 360, y: 130 },
+  { key: 'marina', name: 'Solmar Marina', x: 2520, y: 1930 },
+  { key: 'radio', name: 'Solmar Radio', x: 2520, y: 130 },
+  { key: 'island', name: 'Gull Island', x: 1440, y: 2130 },
+];
 
-export function isRoad(x, y) {
-  const half = ROAD_WIDTH / 2;
-  for (const rx of ROAD_XS) {
-    if (Math.abs(x - rx) <= half && y >= 120 && y <= 2040) return true;
-  }
-  for (const ry of ROAD_YS) {
-    if (Math.abs(y - ry) <= half && x >= 120 && x <= 2760) return true;
-  }
-  return false;
-}
+const BUILDING_COLORS = [
+  '#8d7d6b', '#7d7468', '#9a8a76', '#6f7d8a', '#8a7d8f',
+  '#a08b6d', '#77816f', '#93827a', '#7a6f5e', '#8f8578',
+];
 
-export function isInSea(x, y) {
-  return y > SEA_TOP;
-}
-
-export function isBeach(x, y) {
-  return y > BEACH_TOP && y <= SEA_TOP;
-}
+const PARK_NAMES = ['Palm Court Park', 'Solmar Green', 'Harbor View Park'];
 
 export function buildCity(rng) {
-  const rand = typeof rng === 'function' ? rng : Math.random;
   const buildings = [];
   const parks = [];
-  // One building per city block (between roads), skipping landmark blocks.
-  const taken = new Set();
+
+  // Pick 3 blocks to be parks (never the blocks holding a landmark).
+  const blockCols = ROAD_X.length - 1;
+  const blockRows = ROAD_Y.length - 1;
   const landmarkBlocks = new Set();
-  for (const lm of Object.values(LANDMARKS)) {
-    if (lm.y > SEA_TOP) continue;
-    landmarkBlocks.add(Math.floor(lm.x / GRID_PITCH) + ':' + Math.floor(lm.y / GRID_PITCH));
+  for (const lm of LANDMARK_DEFS) {
+    const bx = clamp(Math.floor((lm.x - ROAD_X[0]) / 360), 0, blockCols - 1);
+    const by = clamp(Math.floor((lm.y - ROAD_Y[0]) / 360), 0, blockRows - 1);
+    landmarkBlocks.add(bx + ',' + by);
   }
-  for (let bx = 0; bx < 7; bx++) {
-    for (let by = 0; by < 5; by++) {
-      const key = bx + ':' + by;
-      if (landmarkBlocks.has(key)) continue;
-      if (rand() < 0.12) {
+  const parkBlocks = [];
+  while (parkBlocks.length < 3) {
+    const bx = rng.int(0, blockCols - 1);
+    const by = rng.int(0, blockRows - 1);
+    const id = bx + ',' + by;
+    if (landmarkBlocks.has(id)) continue;
+    if (parkBlocks.includes(id)) continue;
+    parkBlocks.push(id);
+  }
+  const parkSet = new Set(parkBlocks);
+
+  const landmarkClear = (x, y, w, h) => {
+    for (const lm of LANDMARK_DEFS) {
+      if (lm.x > x - 70 && lm.x < x + w + 70 && lm.y > y - 70 && lm.y < y + h + 70) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Each block interior is split into a 2x2 slot grid. A building
+  // takes one slot, jittered inside it, so neighbours never overlap
+  // and streets stay clear. Two passes guarantee exactly 62.
+  const slots = [];
+  for (let by = 0; by < blockRows; by++) {
+    for (let bx = 0; bx < blockCols; bx++) {
+      if (parkSet.has(bx + ',' + by)) {
+        const px = ROAD_X[bx] + HALF_ROAD + 14;
+        const py = ROAD_Y[by] + HALF_ROAD + 14;
+        const pw = 360 - ROAD_WIDTH - 28;
+        const ph = 360 - ROAD_WIDTH - 28;
         parks.push({
-          x: ROAD_XS[bx] + GRID_PITCH / 2, y: ROAD_YS[by] + GRID_PITCH / 2,
-          w: 220, h: 180,
+          x: px, y: py, w: pw, h: ph,
+          name: PARK_NAMES[parks.length % PARK_NAMES.length],
         });
         continue;
       }
-      const cx = ROAD_XS[bx] + GRID_PITCH / 2;
-      const cy = ROAD_YS[by] + GRID_PITCH / 2;
-      const w = randRange(rand, 120, 210);
-      const h = randRange(rand, 110, 190);
-      buildings.push({
-        x: cx - w / 2, y: cy - h / 2, w, h,
-        color: pick(rand, BUILDING_COLORS),
-        height: randInt(rand, 1, 4),
-      });
-      taken.add(key);
-    }
-  }
-  // Top up to exactly 62 buildings with extra infill blocks.
-  let guard = 0;
-  while (buildings.length < 62 && guard++ < 400) {
-    const bx = randInt(rand, 0, 6);
-    const by = randInt(rand, 0, 4);
-    const key = bx + ':' + by + ':' + buildings.length;
-    if (taken.has(key)) continue;
-    taken.add(key);
-    const cx = ROAD_XS[bx] + GRID_PITCH / 2 + randRange(rand, -60, 60);
-    const cy = ROAD_YS[by] + GRID_PITCH / 2 + randRange(rand, -60, 60);
-    const w = randRange(rand, 70, 130);
-    const h = randRange(rand, 60, 120);
-    buildings.push({ x: cx - w / 2, y: cy - h / 2, w, h, color: pick(rand, BUILDING_COLORS), height: randInt(rand, 1, 3) });
-  }
-  while (parks.length < 3) {
-    parks.push({ x: randRange(rand, 300, 2500), y: randRange(rand, 300, 1800), w: 200, h: 160 });
-  }
-
-  function pointInBuilding(x, y, pad) {
-    const p = pad || 0;
-    for (const b of buildings) {
-      if (x > b.x - p && x < b.x + b.w + p && y > b.y - p && y < b.y + b.h + p) return b;
-    }
-    return null;
-  }
-
-  function nearestRoadPoint(x, y) {
-    let bestX = ROAD_XS[0];
-    let bestD = Infinity;
-    for (const rx of ROAD_XS) {
-      const d = Math.abs(x - rx);
-      if (d < bestD) { bestD = d; bestX = rx; }
-    }
-    let bestY = ROAD_YS[0];
-    bestD = Infinity;
-    for (const ry of ROAD_YS) {
-      const d = Math.abs(y - ry);
-      if (d < bestD) { bestD = d; bestY = ry; }
-    }
-    // Snap to whichever road line is closer.
-    if (Math.abs(x - bestX) <= Math.abs(y - bestY)) return { x: bestX, y: Math.max(180, Math.min(1980, y)) };
-    return { x: Math.max(180, Math.min(2700, x)), y: bestY };
-  }
-
-  function randomStreetPoint(rngFn) {
-    const r = typeof rngFn === 'function' ? rngFn : rand;
-    if (r() < 0.5) {
-      return { x: pick(r, ROAD_XS), y: randRange(r, 180, 1980) };
-    }
-    return { x: randRange(r, 180, 2700), y: pick(r, ROAD_YS) };
-  }
-
-  function nodePoint(ix, iy) {
-    return { x: ROAD_XS[ix], y: ROAD_YS[iy] };
-  }
-
-  function nearestNode(x, y) {
-    let bi = 0;
-    let bj = 0;
-    let best = Infinity;
-    for (let i = 0; i < ROAD_XS.length; i++) {
-      for (let j = 0; j < ROAD_YS.length; j++) {
-        const dx = x - ROAD_XS[i];
-        const dy = y - ROAD_YS[j];
-        const d = dx * dx + dy * dy;
-        if (d < best) { best = d; bi = i; bj = j; }
-      }
-    }
-    return { ix: bi, iy: bj };
-  }
-
-  function nodeNeighbours(ix, iy) {
-    const out = [];
-    if (ix > 0) out.push({ ix: ix - 1, iy });
-    if (ix < ROAD_XS.length - 1) out.push({ ix: ix + 1, iy });
-    if (iy > 0) out.push({ ix, iy: iy - 1 });
-    if (iy < ROAD_YS.length - 1) out.push({ ix, iy: iy + 1 });
-    return out;
-  }
-
-  // Push a circle (entity with x,y,r) out of buildings and world bounds.
-  function resolveCircle(ent) {
-    const r = ent.r || ent.radius || 11;
-    for (const b of buildings) {
-      const cx = Math.max(b.x, Math.min(ent.x, b.x + b.w));
-      const cy = Math.max(b.y, Math.min(ent.y, b.y + b.h));
-      const dx = ent.x - cx;
-      const dy = ent.y - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < r * r) {
-        if (d2 > 0.01) {
-          const d = Math.sqrt(d2);
-          ent.x = cx + (dx / d) * r;
-          ent.y = cy + (dy / d) * r;
-        } else {
-          ent.y = b.y - r;
+      const baseX = ROAD_X[bx] + HALF_ROAD + 12;
+      const baseY = ROAD_Y[by] + HALF_ROAD + 12;
+      const slotW = (360 - ROAD_WIDTH - 24) / 2;
+      const slotH = (360 - ROAD_WIDTH - 24) / 2;
+      for (let sy = 0; sy < 2; sy++) {
+        for (let sx = 0; sx < 2; sx++) {
+          slots.push({
+            x: baseX + sx * slotW,
+            y: baseY + sy * slotH,
+            w: slotW,
+            h: slotH,
+          });
         }
       }
     }
-    ent.x = Math.max(r, Math.min(WORLD_W - r, ent.x));
-    ent.y = Math.max(r, Math.min(WORLD_H - r, ent.y));
-    return ent;
+  }
+
+  const placeInSlot = (slot) => {
+    const w = Math.min(slot.w - 14, rng.float(84, 112));
+    const h = Math.min(slot.h - 14, rng.float(78, 108));
+    const x = slot.x + (slot.w - w) / 2 + rng.float(-4, 4);
+    const y = slot.y + (slot.h - h) / 2 + rng.float(-4, 4);
+    if (!landmarkClear(x, y, w, h)) return false;
+    buildings.push({
+      x, y, w, h,
+      color: rng.pick(BUILDING_COLORS),
+      floors: rng.int(1, 4),
+    });
+    return true;
+  };
+
+  for (const slot of rng.shuffle(slots)) {
+    if (buildings.length >= 62) break;
+    if (rng.chance(0.42)) continue;
+    placeInSlot(slot);
+  }
+  for (const slot of slots) {
+    if (buildings.length >= 62) break;
+    placeInSlot(slot);
+  }
+  // Last resort (should never trigger): tiny kiosks on the beach edge.
+  let kx = 120;
+  while (buildings.length < 62) {
+    buildings.push({ x: kx, y: 2040, w: 60, h: 40, color: '#8d7d6b', floors: 1 });
+    kx += 140;
+  }
+
+  const landmarks = {};
+  for (const lm of LANDMARK_DEFS) {
+    landmarks[lm.key] = { key: lm.key, name: lm.name, x: lm.x, y: lm.y };
   }
 
   const city = {
-    buildings, parks,
-    landmarks: LANDMARKS,
-    nodeCountX: ROAD_XS.length,
-    nodeCountY: ROAD_YS.length,
-    roadXs: ROAD_XS, roadYs: ROAD_YS,
-    isRoad, pointInBuilding, nearestRoadPoint, nearestNode,
-    nodePoint, nodeNeighbours, randomStreetPoint, resolveCircle, isInSea, isBeach,
+    buildings,
+    parks,
+    landmarks,
+    nodeCountX: NODE_COUNT_X,
+    nodeCountY: NODE_COUNT_Y,
+
+    isRoad(x, y) {
+      for (const rx of ROAD_X) {
+        if (Math.abs(x - rx) <= HALF_ROAD && y >= ROAD_Y[0] - HALF_ROAD && y <= ROAD_Y[ROAD_Y.length - 1] + HALF_ROAD) return true;
+      }
+      for (const ry of ROAD_Y) {
+        if (Math.abs(y - ry) <= HALF_ROAD && x >= ROAD_X[0] - HALF_ROAD && x <= ROAD_X[ROAD_X.length - 1] + HALF_ROAD) return true;
+      }
+      return false;
+    },
+
+    pointInBuilding(x, y, r = 0) {
+      for (const b of buildings) {
+        if (x >= b.x - r && x <= b.x + b.w + r && y >= b.y - r && y <= b.y + b.h + r) return true;
+      }
+      return false;
+    },
+
+    nearestRoadPoint(x, y) {
+      let best = null;
+      let bestD = Infinity;
+      for (const rx of ROAD_X) {
+        const cy = clamp(y, ROAD_Y[0], ROAD_Y[ROAD_Y.length - 1]);
+        const d = (x - rx) * (x - rx) + (y - cy) * (y - cy);
+        if (d < bestD) { bestD = d; best = { x: rx, y: cy }; }
+      }
+      for (const ry of ROAD_Y) {
+        const cx = clamp(x, ROAD_X[0], ROAD_X[ROAD_X.length - 1]);
+        const d = (x - cx) * (x - cx) + (y - ry) * (y - ry);
+        if (d < bestD) { bestD = d; best = { x: cx, y: ry }; }
+      }
+      return best;
+    },
+
+    nearestNode(x, y) {
+      const ix = clamp(Math.round((x - ROAD_X[0]) / 360), 0, NODE_COUNT_X - 1);
+      const iy = clamp(Math.round((y - ROAD_Y[0]) / 360), 0, NODE_COUNT_Y - 1);
+      return { ix, iy };
+    },
+
+    nodePoint(ix, iy) {
+      return {
+        x: ROAD_X[clamp(ix, 0, NODE_COUNT_X - 1)],
+        y: ROAD_Y[clamp(iy, 0, NODE_COUNT_Y - 1)],
+      };
+    },
+
+    nodeNeighbours(ix, iy) {
+      const out = [];
+      if (ix > 0) out.push({ ix: ix - 1, iy });
+      if (ix < NODE_COUNT_X - 1) out.push({ ix: ix + 1, iy });
+      if (iy > 0) out.push({ ix, iy: iy - 1 });
+      if (iy < NODE_COUNT_Y - 1) out.push({ ix, iy: iy + 1 });
+      return out;
+    },
+
+    randomStreetPoint(r) {
+      const useRng = r || rng;
+      if (useRng.chance(0.5)) {
+        return {
+          x: useRng.pick(ROAD_X),
+          y: useRng.float(ROAD_Y[0], ROAD_Y[ROAD_Y.length - 1]),
+        };
+      }
+      return {
+        x: useRng.float(ROAD_X[0], ROAD_X[ROAD_X.length - 1]),
+        y: useRng.pick(ROAD_Y),
+      };
+    },
+
+    // Push a circle out of every building it overlaps. Runs a few
+    // passes so corners where two buildings meet resolve cleanly.
+    resolveCircle(x, y, r) {
+      let px = clamp(x, 0, WORLD_W);
+      let py = clamp(y, 0, WORLD_H);
+      for (let pass = 0; pass < 3; pass++) {
+        let moved = false;
+        for (const b of buildings) {
+          const cx = clamp(px, b.x, b.x + b.w);
+          const cy = clamp(py, b.y, b.y + b.h);
+          const dx = px - cx;
+          const dy = py - cy;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= r * r) continue;
+          if (d2 === 0) {
+            const left = px - b.x;
+            const right = b.x + b.w - px;
+            const top = py - b.y;
+            const bottom = b.y + b.h - py;
+            const m = Math.min(left, right, top, bottom);
+            if (m === left) px = b.x - r;
+            else if (m === right) px = b.x + b.w + r;
+            else if (m === top) py = b.y - r;
+            else py = b.y + b.h + r;
+          } else {
+            const d = Math.sqrt(d2);
+            const push = (r - d) / d;
+            px += dx * push;
+            py += dy * push;
+          }
+          moved = true;
+        }
+        if (!moved) break;
+      }
+      return { x: clamp(px, 0, WORLD_W), y: clamp(py, 0, WORLD_H) };
+    },
+
+    isInSea(x, y) {
+      return y > SEA_TOP;
+    },
   };
   return city;
 }
 
-export function landmark(city, key) {
-  return city.landmarks[key] || LANDMARKS[key] || null;
-}
 export default buildCity;

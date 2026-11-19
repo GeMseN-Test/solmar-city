@@ -1,63 +1,59 @@
-// missions2.js — Solmar City story missions M6–M8 (v2 additions).
-// Written from the v2 spec only. Appends to MISSIONS; idempotent.
-import { MISSIONS, landmarkPos } from './missions.js';
-import { spawnGang } from './combat.js';
+// missions2.js — Solmar City story missions M6–M8.
+// Written from the v2 spec only. Appended to MISSIONS by
+// registerStoryMissions() (idempotent — safe to call twice).
+
+import { MISSIONS, spawnMissionGang } from './missions.js';
 
 const EXTRA = [
   {
-    id: 'harbor-lights',
+    id: 'm6-harbor-lights',
     title: 'Harbor Lights',
-    briefing: 'Malam di pelabuhan. Naik perahu di Docks, mampir ke Gull Island, sampai ke Marina.',
+    briefing: 'Take a boat out. Docks, Gull Island, then home to the Marina.',
     reward: 900,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Pergi ke Solmar Docks' },
-      { kind: 'board', text: 'Naik perahu (E di dekat perahu)' },
-      { kind: 'reach', key: 'island', text: 'Berlayar ke Gull Island' },
-      { kind: 'reach', key: 'marina', text: 'Berlayar ke Solmar Marina' },
+      { kind: 'reach', key: 'docks', text: 'Go to the Solmar Docks' },
+      { kind: 'board', text: 'Board a boat (press E next to one)' },
+      { kind: 'reach', key: 'island', radius: 130, text: 'Sail to Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Sail back to the Marina' },
     ],
   },
   {
-    id: 'on-air',
+    id: 'm7-on-air',
     title: 'On Air',
-    briefing: 'Static Boys menguasai menara radio. Usir mereka, lalu pulang ke Safehouse.',
+    briefing: 'Static Boys took the radio tower. Clear them out, then get home.',
     reward: 1200,
     objectives: [
-      { kind: 'reach', key: 'radio', text: 'Pergi ke menara Solmar Radio' },
-      { kind: 'defeat', count: 3, text: 'Kalahkan 3 Static Boys' },
-      { kind: 'reach', key: 'safehouse', text: 'Kembali ke Safehouse Mara' },
+      { kind: 'reach', key: 'radio', text: 'Go to the Solmar Radio tower' },
+      { kind: 'defeat', count: 3, text: 'Defeat 3 Static Boys' },
+      { kind: 'reach', key: 'safehouse', text: "Get back to Mara's Safehouse" },
     ],
   },
   {
-    id: 'grand-finale',
+    id: 'm8-grand-finale',
     title: 'The Grand Finale',
-    briefing: 'Bank Grand Solmar, sekali lagi — kali ini besar. Bobol, lawan penjaga, kabur.',
+    briefing: 'One last bank job. Vault, six guards, and a clean getaway.',
     reward: 5000,
     objectives: [
-      { kind: 'reach', key: 'bank', text: 'Pergi ke Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Bobol brankas (E di depan bank)' },
-      { kind: 'defeat', count: 6, text: 'Kalahkan 6 penjaga bank' },
-      { kind: 'escape', key: 'safehouse', text: 'Kabur ke Safehouse Mara' },
+      { kind: 'reach', key: 'bank', text: 'Go to the Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
+      { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
+      { kind: 'escape', key: 'safehouse', text: "Escape to Mara's Safehouse" },
     ],
   },
 ];
 
+let registered = false;
+
 export function registerStoryMissions() {
-  for (const m of EXTRA) {
-    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
+  if (registered) return;
+  registered = true;
+  for (const def of EXTRA) {
+    if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
   }
-  return MISSIONS.length;
 }
 
-// Spawn the gang for a v2 mission: defeat count around the FIRST reach
-// landmark (radio tower for M7, bank for M8). startMission already does
-// this generically; this helper keeps the v2 API from the spec.
+// Gang spawn for M7/M8 (called by startMission via spawnMissionGang,
+// kept as the named v2 API for the tower / bank spawns).
 export function setupV2Mission(state, def) {
-  if (!def) return false;
-  const defeat = def.objectives.find((o) => o.kind === 'defeat');
-  const firstReach = def.objectives.find((o) => o.kind === 'reach');
-  if (!defeat || !firstReach) return false;
-  const pos = landmarkPos(state, firstReach.key);
-  if (!pos) return false;
-  spawnGang(state, pos.x, pos.y, defeat.count || 3);
-  return true;
+  spawnMissionGang(state, def);
 }
