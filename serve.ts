@@ -1,19 +1,20 @@
-// Dev server: `node serve.ts` serves `game/` on http://localhost:8080.
-// Static files only, no request logging, no directory listing.
-// Anything outside game/ (or missing) is a 404.
+// Solmar City dev server: serves game/ on http://localhost:8080.
+// Run: node serve.ts   (no dependencies, plain node)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { join, resolve, extname } from 'node:path';
+import { join, extname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const GAME_DIR = join(__dirname, 'game');
+const PORT = 8080;
 
-const TYPES = {
+const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -26,24 +27,26 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     let path = decodeURIComponent(url.pathname);
     if (path === '/') path = '/index.html';
-    const file = resolve(join(root, '.' + path));
-    if (!file.startsWith(root)) {
-      res.writeHead(404);
-      res.end('not found');
+    const filePath = normalize(join(GAME_DIR, path));
+    // Anything outside game/ is a 404.
+    if (!filePath.startsWith(GAME_DIR)) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('404 not found');
       return;
     }
-    const body = await readFile(file);
+    const data = await readFile(filePath);
+    const ext = extname(filePath).toLowerCase();
     res.writeHead(200, {
-      'content-type': TYPES[extname(file)] || 'application/octet-stream',
+      'content-type': MIME[ext] || 'application/octet-stream',
       'cache-control': 'no-store',
     });
-    res.end(body);
+    res.end(data);
   } catch (e) {
-    res.writeHead(404);
-    res.end('not found');
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    res.end('404 not found');
   }
 });
 
-server.listen(8080, () => {
-  console.log('game/ is on http://localhost:8080');
+server.listen(PORT, () => {
+  console.log('game/ is on http://localhost:' + PORT);
 });

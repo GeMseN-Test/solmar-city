@@ -1,64 +1,74 @@
-// Local save: a plain snapshot of the run, stored as JSON under one
-// key in localStorage. Safe to call anywhere — every function guards
-// against a missing `window` (headless / node) and returns false/null.
+// Save / load for Solmar City (localStorage, one slot).
 import { SAVE_KEY } from './config.js';
 import { formatMoney, formatTime } from './util.js';
 
+// Snapshot of the fields a save carries. Pure — no window needed.
 export function saveSnapshot(state) {
+  const p = state.player || {};
   return {
     seed: state.seed,
-    money: Math.round(state.money),
-    missionIndex: state.missionIndex,
-    missionsDone: state.missionsDone,
-    storyComplete: state.storyComplete,
-    kills: state.kills,
-    hp: Math.round(state.player.hp),
-    ammo: state.player.ammo,
-    x: Math.round(state.player.x),
-    y: Math.round(state.player.y),
-    playTime: Math.round(state.playTime),
+    money: state.money || 0,
+    missionIndex: state.missionIndex || 0,
+    missionsDone: state.missionsDone || 0,
+    storyComplete: !!state.storyComplete,
+    kills: state.kills || 0,
+    hp: p.hp != null ? p.hp : 100,
+    ammo: p.ammo != null ? p.ammo : 0,
+    x: p.x || 0,
+    y: p.y || 0,
+    playTime: state.playTime || 0,
   };
 }
 
+// Apply a loaded snapshot back onto a live state object.
 export function applySave(state, save) {
   if (!save) return false;
-  state.seed = save.seed;
-  state.money = save.money;
-  state.missionIndex = save.missionIndex;
-  state.missionsDone = save.missionsDone;
+  state.money = save.money || 0;
+  state.missionIndex = save.missionIndex || 0;
+  state.missionsDone = save.missionsDone || 0;
   state.storyComplete = !!save.storyComplete;
   state.kills = save.kills || 0;
-  state.player.hp = save.hp;
-  state.player.ammo = save.ammo;
-  state.player.x = save.x;
-  state.player.y = save.y;
   state.playTime = save.playTime || 0;
+  if (state.player) {
+    state.player.hp = save.hp != null ? save.hp : 100;
+    state.player.ammo = save.ammo != null ? save.ammo : 0;
+    if (save.x != null) state.player.x = save.x;
+    if (save.y != null) state.player.y = save.y;
+    state.player.inCar = false;
+    state.player.car = null;
+    state.player.inBoat = false;
+    state.player.boat = null;
+  }
   return true;
 }
 
+// Write the current state to localStorage. Returns true on success.
 export function saveGame(state) {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return false;
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(saveSnapshot(state)));
+    const snap = saveSnapshot(state);
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(snap));
     return true;
   } catch (e) {
     return false;
   }
 }
 
+// Read the save slot. Returns the save object, or null when empty/bad.
 export function loadSave() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null;
     const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
+    if (!parsed || typeof parsed !== 'object') return null;
     return parsed;
   } catch (e) {
     return null;
   }
 }
 
+// Delete the save slot. Returns true when it ran.
 export function clearSave() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return false;
@@ -69,11 +79,17 @@ export function clearSave() {
   }
 }
 
-// One-line save summary for the title screen: "$1,234  •  3 missions
-// done  •  2:05 played". Empty string when there is no save.
+// One-line summary for the Continue button:
+// "$1,234  •  3 missions done  •  2:05 played"
 export function saveInfoText(save) {
   if (!save) return '';
-  const missions = save.missionsDone || 0;
-  const word = missions === 1 ? 'mission' : 'missions';
-  return formatMoney(save.money) + '  •  ' + missions + ' ' + word + ' done  •  ' + formatTime(save.playTime || 0) + ' played';
+  const money = '$' + formatMoney(save.money || 0);
+  const missions = (save.missionsDone || 0) + ' mission' + ((save.missionsDone || 0) === 1 ? '' : 's') + ' done';
+  const played = formatTime(save.playTime || 0) + ' played';
+  return money + '  •  ' + missions + '  •  ' + played;
+}
+
+// True when a save slot exists.
+export function hasSave() {
+  return loadSave() !== null;
 }

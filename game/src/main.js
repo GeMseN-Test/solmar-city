@@ -1,241 +1,337 @@
-// Solmar City — entry point. Wires the canvas, the input, the audio,
-// the radio and the world together, runs the frame loop, and owns the
-// screens (title / game / paused / dead). `?shot=<name>&seed=N` renders
-// one staged frame for screenshots and stops.
+// main.js — Entry point for Solmar City.
+//
+// Wires everything together: canvas + game loop, screens (title /
+// playing / paused / wasted / busted), save + continue, radio (Q),
+// handbrake, prompts, and audio. Each frame it builds a plain VALUES
+// input object for world.step — no functions cross that boundary:
+//   { mx, my, aimX, aimY, actions, shooting, running,
+//     steer, throttle, handbrake }
+//
+// Screens:
+//   title   — "SOLMAR CITY", New Game / Continue (if a save exists).
+//   playing — the loop runs world.step + render.
+//   paused  — P / Esc freezes the loop, overlay with resume/quit.
+//   wasted / busted — overlay after DIED / BUSTED, Enter respawns
+//             at the safehouse and play continues.
+//
+// ?shot=<scene>&seed=<n> in the URL stages a screenshot scene via
+// shots.js instead of starting at the title screen.
+//
+// Audio: WebAudio synth (audio.js) for effects + music, and the
+// in-game radio (radio.js) with its own lazy AudioContext — both only
+// start after a user gesture (a click or key press).
+
+import { createWorld, EV, MISSIONS, startMission, applySnapshot } from './world.js';
+import { render } from './render.js';
+import { createInput, ACTION_CONFIRM, ACTION_PAUSE, ACTION_INTERACT, ACTION_PUNCH, ACTION_MUTE, ACTION_RADIO } from './input.js';
 import { createAudio } from './audio.js';
-import { WORLD_H, WORLD_W } from './config.js';
-import { buildFrameInput, createInput, ACTIONS } from './input.js';
-import { currentObjective } from './missions.js';
-import { cycleRadio, ensureRadio, radioName, tickRadio } from './radio.js';
-import { render, titleButtons } from './render.js';
-import { applySave, loadSave, saveGame, saveInfoText } from './save.js';
+import { createRadio, cycleRadio, radioName, ensureRadio, tickRadio, setRadioMuted } from './radio.js';
+import { saveGame, loadSave, clearSave, saveInfoText } from './save.js';
 import { stageShot } from './shots.js';
-import { createWorld } from './world.js';
-import { clamp, formatMoney } from './util.js';
+import { nearestBoat } from './boats.js';
+import { currentObjective, missionMarker } from './missions.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
-const VW = canvas.width;
-const VH = canvas.height;
 
-const params = new URLSearchParams(window.location.search);
-const seedParam = parseInt(params.get('seed') || '1', 10);
-const shotParam = params.get('shot');
+let world = createWorld(1);
+let state = world.state;
+let screen = 'title';
+let save = loadSave();
+let lastTime = 0;
+let saveTimer = 0;
+let shotMode = null;
 
-const world = createWorld(Number.isFinite(seedParam) ? seedParam : 1);
-const state = world.state;
 const input = createInput(canvas);
 const audio = createAudio();
+if (!state.radio) state.radio = createRadio();
 
-let screen = 'title';
-let camera = { x: 0, y: 0 };
-let banner = null;
-let bannerUntil = 0;
-let deadText = null;
-let deadUntil = 0;
-let lastTime = performance.now();
-let saveTimer = 0;
-let shotDone = false;
+// ------------------------------------------------------------------
+// Context prompt: one line that tells the player what E does here.
+// ------------------------------------------------------------------
 
-const savedGame = loadSave();
-
-function setStatus(text) {
-  if (statusEl) statusEl.textContent = text;
-}
-
-function updateCamera(dt) {
+export function computePrompt(state) {
   const p = state.player;
-  const lookX = p.inCar && p.car ? Math.cos(p.angle) * Math.abs(p.car.speed) * 0.25 : 0;
-  const lookY = p.inCar && p.car ? Math.sin(p.angle) * Math.abs(p.car.speed) * 0.25 : 0;
-  const tx = clamp(p.x + lookX - VW / 2, 0, WORLD_W - VW);
-  const ty = clamp(p.y + lookY - VH / 2, 0, WORLD_H - VH);
-  camera.x += (tx - camera.x) * Math.min(1, dt * 5);
-  camera.y += (ty - camera.y) * Math.min(1, dt * 5);
-}
+  const obj = currentObjective(state);
 
-function showBanner(text, sub, seconds) {
-  banner = { text, sub: sub || '' };
-  bannerUntil = performance.now() + seconds * 1000;
-}
-
-function handleEvents(events) {
-  if (events & 1) audio.shot();
-  if (events & 2) audio.punch();
-  if (events & 4) audio.pickup('cash');
-  if (events & 8) audio.crash(0.6);
-  if (events & 128) audio.enemyShot();
-  if (events & 256) showBanner('VAULT GRABBED', 'Lose the heat — run!', 2.5);
-  if (events & 512) showBanner('CAR STOLEN', 'The cops saw that…', 2);
-  if (events & 16) audio.click();
-  if (events & 1024) {
-    audio.missionComplete();
-    const done = state.missionsDone;
-    showBanner('MISSION COMPLETE', done + ' missions done  •  ' + formatMoney(state.money), 3);
-    saveGame(state);
-    if (state.storyComplete) {
-      showBanner('THE SOLMAR CROWN IS YOURS', 'All 12 story missions complete — Mara owns this city.', 6);
+  if (p.inBoat) return 'E — step ashore   •   W/S throttle, A/D steer the boat';
+  if (p.inCar) return 'E — get out   •   Space (hold) — handbrake   •   W/S drive, A/D steer';
+  if (nearestBoat(state, p.x, p.y)) return 'E — board the boat';
+  const crate = (state.crates || []).find((c) => !c.taken);
+  if (crate) {
+    const dx = p.x - crate.x;
+    const dy = p.y - crate.y;
+    if (dx * dx + dy * dy < 46 * 46) return 'E — grab the crate';
+  }
+  if (obj && obj.kind === 'interact') {
+    const bank = state.city.landmarks.bank;
+    if (bank) {
+      const dx = p.x - bank.x;
+      const dy = p.y - bank.y;
+      if (dx * dx + dy * dy < 110 * 110) return 'E — grab the vault (4 stars!)';
     }
   }
-  if (events & 32) {
-    deadText = 'WASTED';
-    deadUntil = performance.now() + 2200;
-    audio.busted();
+  const car = state.traffic.cars.find((c) => {
+    const dx = p.x - c.x;
+    const dy = p.y - c.y;
+    return dx * dx + dy * dy < 70 * 70;
+  });
+  if (car) return 'E — steal the car (+1 star)';
+  if (obj && obj.kind === 'board') return 'Head to the docks and board a boat (E)';
+  if (obj) return obj.text;
+  return 'Enter — start a mission at the map marker   •   E — interact';
+}
+
+// ------------------------------------------------------------------
+// Screens
+// ------------------------------------------------------------------
+
+function drawTitle() {
+  ctx.fillStyle = '#0d1520';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffd54a';
+  ctx.font = 'bold 72px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('SOLMAR CITY', canvas.width / 2, 240);
+  ctx.fillStyle = '#9fd8ff';
+  ctx.font = '24px sans-serif';
+  ctx.fillText('An open-world crime game — 12 story missions, boats, radio, taxi fares', canvas.width / 2, 300);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText('▶  New Game  (Enter)', canvas.width / 2, 420);
+  if (save) {
+    ctx.fillStyle = '#2ecc71';
+    ctx.fillText('↻  Continue — ' + saveInfoText(save) + '  (C)', canvas.width / 2, 470);
   }
-  if (events & 64) {
-    deadText = 'BUSTED';
-    deadUntil = performance.now() + 2200;
-    audio.busted();
-  }
+  ctx.fillStyle = '#aaa';
+  ctx.font = '17px sans-serif';
+  ctx.fillText('WASD move • Mouse aim, click to shoot • E interact / steal car / board boat', canvas.width / 2, 560);
+  ctx.fillText('Space punch — hold Space to handbrake while driving • Q radio • M mute • P pause', canvas.width / 2, 590);
+  ctx.textAlign = 'left';
+}
+
+function drawOverlay(title, sub) {
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 56px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(title, canvas.width / 2, canvas.height / 2 - 20);
+  ctx.font = '22px sans-serif';
+  ctx.fillStyle = '#ddd';
+  ctx.fillText(sub, canvas.width / 2, canvas.height / 2 + 30);
+  ctx.textAlign = 'left';
 }
 
 function startNewGame() {
+  world = createWorld((Math.random() * 0x7fffffff) | 0);
+  state = world.state;
+  if (!state.radio) state.radio = createRadio();
+  state.radio.stationIndex = 0;
+  clearSave();
+  save = null;
   audio.ensure();
   ensureRadio(state.radio);
-  world.reset(); // re-rolls in place; `state` stays the live object
-  state.screen = 'game';
-  screen = 'game';
-  showBanner('SOLMAR CITY', 'M1: Hot Wheels — steal a car', 3);
-  setStatus('M1 Hot Wheels — steal a car');
-  canvas.focus();
+  startMission(state, 0);
+  screen = 'playing';
 }
 
 function continueGame() {
-  if (!savedGame) return;
+  if (!save) return;
+  world = createWorld(save.seed || 1);
+  state = world.state;
+  applySnapshot(state, save);
   audio.ensure();
   ensureRadio(state.radio);
-  applySave(state, savedGame);
-  state.screen = 'game';
-  screen = 'game';
-  setStatus('Continued — ' + formatMoney(state.money));
-  canvas.focus();
+  screen = 'playing';
 }
 
-function onTitleClick() {
-  if (!input.mouse.clicked) return;
-  const { clickX, clickY } = input.mouse;
-  input.mouse.clicked = false;
-  const btns = titleButtons(VW, VH);
-  const b = btns.newGame;
-  if (clickX >= b.x && clickX <= b.x + b.w && clickY >= b.y && clickY <= b.y + b.h) {
+function handleTitleInput(actions) {
+  if (actions & ACTION_CONFIRM || input.takeClick()) {
     startNewGame();
     return;
   }
-  if (savedGame) {
-    const c = btns.continue;
-    if (clickX >= c.x && clickX <= c.x + c.w && clickY >= c.y && clickY <= c.y + c.h) {
-      continueGame();
-    }
+  if (input.isDown('KeyC') && save) {
+    continueGame();
   }
 }
 
-function frame(now) {
-  const dt = clamp((now - lastTime) / 1000, 0, 0.05);
-  lastTime = now;
+function handleOverlayInput(actions, after) {
+  if ((actions & ACTION_CONFIRM) || input.takeClick()) {
+    after();
+  }
+}
 
-  // One-shot screenshot mode: stage, render once, stop the loop and
-  // tell the harness the frame is ready.
-  if (shotParam) {
-    if (!shotDone) {
-      stageShot(state, shotParam);
-      state.screen = shotParam === 'title' ? 'title' : 'game';
-      updateCamera(1);
-      render(ctx, state, {
-        camX: camera.x, camY: camera.y, vw: VW, vh: VH,
-        screen: state.screen, banner: null, mouse: input.mouse,
-        hasSave: !!savedGame, saveInfo: saveInfoText(savedGame),
-      });
-      shotDone = true;
-      window.__solmarReady = true;
+// ------------------------------------------------------------------
+// Events from world.step
+// ------------------------------------------------------------------
+
+function handleEvents(events) {
+  if (events & EV.SHOT) audio.shot();
+  if (events & EV.PUNCH) audio.punch();
+  if (events & EV.PICKUP) audio.pickup('cash');
+  if (events & EV.CRASH) audio.crash(0.5);
+  if (events & EV.STEAL) audio.pickup('cash');
+  if (events & EV.VAULT) audio.missionComplete();
+  if (events & EV.ENEMY_SHOT) audio.enemyShot();
+  if (events & EV.MISSION) audio.click();
+  if (events & EV.MISSION_COMPLETE) {
+    audio.missionComplete();
+    saveGame(state);
+    save = loadSave();
+  }
+  if (events & EV.DIED) {
+    audio.busted();
+    screen = 'wasted';
+  }
+  if (events & EV.BUSTED) {
+    audio.busted();
+    screen = 'busted';
+  }
+}
+
+// ------------------------------------------------------------------
+// Frame
+// ------------------------------------------------------------------
+
+function buildInput(actions) {
+  const p = state.player;
+  const move = input.moveVector();
+  const drive = input.driveVector();
+  // Mouse position in world coords (screen + camera - viewport half).
+  const aimX = input.mouse.x + state.camera.x - canvas.width / 2;
+  const aimY = input.mouse.y + state.camera.y - canvas.height / 2;
+  const driving = p.inCar || p.inBoat;
+  return {
+    mx: move.mx,
+    my: move.my,
+    aimX,
+    aimY,
+    actions,
+    shooting: input.mouse.down && !driving,
+    running: input.running(),
+    steer: driving ? drive.steer : 0,
+    throttle: driving ? drive.throttle : 0,
+    handbrake: driving ? input.handbrake() : false,
+  };
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - lastTime) / 1000 || 0.016);
+  lastTime = now;
+  const actions = input.takeActions();
+
+  if (screen === 'title') {
+    handleTitleInput(actions);
+    drawTitle();
+    return;
+  }
+
+  if (screen === 'paused') {
+    render(state, ctx, canvas.width, canvas.height);
+    drawOverlay('PAUSED', 'P / Esc — resume    •    Enter — save & quit to title');
+    if (actions & ACTION_PAUSE) {
+      screen = 'playing';
+    } else if (actions & ACTION_CONFIRM) {
+      saveGame(state);
+      save = loadSave();
+      screen = 'title';
     }
     return;
   }
 
-  // Edge actions are consumed once per frame, whatever the screen.
-  const frameInput = buildFrameInput(input, camera);
-  if (frameInput.actions & ACTIONS.MUTE) {
-    const m = !audio.isMuted();
-    audio.setMuted(m);
-    state.radio.muted = m;
-  }
-  if (frameInput.actions & ACTIONS.RADIO) {
-    if (ensureRadio(state.radio)) cycleRadio(state.radio);
+  if (screen === 'wasted' || screen === 'busted') {
+    render(state, ctx, canvas.width, canvas.height);
+    drawOverlay(
+      screen === 'wasted' ? 'WASTED' : 'BUSTED',
+      'Enter — back to the safehouse',
+    );
+    handleOverlayInput(actions, () => {
+      screen = 'playing';
+    });
+    return;
   }
 
-  if (screen === 'title') {
-    if (frameInput.actions & ACTIONS.CONFIRM) startNewGame();
-    else onTitleClick();
-    updateCamera(dt);
-    render(ctx, state, {
-      camX: camera.x, camY: camera.y, vw: VW, vh: VH,
-      screen: 'title', banner: null, mouse: input.mouse,
-      hasSave: !!savedGame, saveInfo: saveInfoText(savedGame),
-    });
-    setStatus('Solmar City — press Enter or click New Game to play.');
-  } else if (screen === 'paused') {
-    if (frameInput.actions & ACTIONS.PAUSE) {
-      screen = 'game';
-      state.screen = 'game';
-    }
-    render(ctx, state, {
-      camX: camera.x, camY: camera.y, vw: VW, vh: VH,
-      screen: 'paused', banner: null, mouse: input.mouse,
-    });
-  } else {
-    if (frameInput.actions & ACTIONS.PAUSE) {
-      screen = 'paused';
-      state.screen = 'paused';
-      render(ctx, state, {
-        camX: camera.x, camY: camera.y, vw: VW, vh: VH,
-        screen: 'paused', banner: null, mouse: input.mouse,
-      });
-    } else {
-      state.screen = 'game';
-      const events = world.step(frameInput, dt);
-      handleEvents(events);
-      tickRadio(state.radio);
-      audio.engine(state.player.inCar && state.player.car ? Math.abs(state.player.car.speed) / 560 : 0);
-      audio.siren(state.police.wanted > 0);
-      updateCamera(dt);
-      // Autosave every 15 seconds of play.
-      saveTimer += dt;
-      if (saveTimer > 15) {
-        saveTimer = 0;
-        saveGame(state);
-      }
-      const obj = currentObjective(state);
-      setStatus(
-        (state.mission ? state.mission.title + ' — ' + (obj ? obj.text : '') : 'Free roam') +
-        '  •  ' + formatMoney(state.money) +
-        '  •  ' + state.police.wanted + '★' +
-        '  •  ♪ ' + radioName(state.radio)
-      );
-      const showBannerNow = banner && now < bannerUntil ? banner : null;
-      if (banner && now >= bannerUntil) banner = null;
-      const showDead = deadText && now < deadUntil ? deadText : null;
-      if (deadText && now >= deadUntil) deadText = null;
-      render(ctx, state, {
-        camX: camera.x, camY: camera.y, vw: VW, vh: VH,
-        screen: 'game', banner: showBannerNow, dead: showDead, mouse: input.mouse,
-      });
-    }
+  // Playing.
+  if (actions & ACTION_PAUSE) {
+    screen = 'paused';
+    return;
+  }
+  if (actions & ACTION_MUTE) {
+    const muted = !state.muted;
+    state.muted = muted;
+    audio.setMuted(muted);
+    setRadioMuted(state.radio, muted);
+  }
+  if (actions & ACTION_RADIO) {
+    audio.ensure();
+    ensureRadio(state.radio);
+    cycleRadio(state.radio);
+    state.bannerText = '♪ ' + radioName(state.radio);
+    state.bannerTimer = 2;
+  }
+  if (actions & ACTION_CONFIRM && !state.mission) {
+    const next = state.missionIndex < MISSIONS.length ? state.missionIndex : 0;
+    if (!state.storyComplete) startMission(state, next);
+  }
+
+  const values = buildInput(actions);
+  const events = world.step(values, dt);
+  handleEvents(events);
+
+  // Radio scheduler + music tick every frame.
+  tickRadio(state.radio);
+  audio.stepMusic();
+
+  // Autosave every 20s of play.
+  saveTimer += dt;
+  if (saveTimer > 20) {
+    saveTimer = 0;
+    saveGame(state);
+    save = loadSave();
+  }
+
+  render(state, ctx, canvas.width, canvas.height);
+
+  // Prompt line (bottom, above the how-to bar).
+  const prompt = computePrompt(state);
+  if (prompt) {
+    ctx.font = 'bold 16px sans-serif';
+    const pw = ctx.measureText(prompt).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect((canvas.width - pw) / 2 - 12, canvas.height - 78, pw + 24, 28);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(prompt, canvas.width / 2, canvas.height - 59);
+    ctx.textAlign = 'left';
+  }
+
+  if (statusEl) {
+    statusEl.textContent =
+      '$' + (state.money || 0) + '  •  ' +
+      (state.missionsDone || 0) + ' missions done' +
+      (state.storyComplete ? '  •  STORY COMPLETE' : '');
+  }
+}
+
+// ------------------------------------------------------------------
+// Boot
+// ------------------------------------------------------------------
+
+function boot() {
+  const params = new URLSearchParams(window.location.search);
+  const shot = params.get('shot');
+  if (shot) {
+    shotMode = shot;
+    const seed = parseInt(params.get('seed') || '1', 10) || 1;
+    state = stageShot(shot, seed);
+    world.state = state;
+    screen = 'playing';
+    if (statusEl) statusEl.textContent = 'Shot: ' + shot;
   }
   requestAnimationFrame(frame);
 }
 
-// Debug / test handle: lets a headless harness inspect the live state
-// (teleport the player, read money, set wanted) without touching the
-// game code paths. The game itself never reads window.__solmar.
-window.__solmar = { state, world, startNewGame };
-window.__solmarReady = false;
-
-if (shotParam) {
-  // Render the staged shot as soon as the page loads.
-  requestAnimationFrame(frame);
-} else {
-  state.screen = 'title';
-  screen = 'title';
-  camera.x = clamp(state.player.x - VW / 2, 0, WORLD_W - VW);
-  camera.y = clamp(state.player.y - VH / 2, 0, WORLD_H - VH);
-  requestAnimationFrame(frame);
-}
+boot();

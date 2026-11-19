@@ -4,55 +4,78 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Solmar City — an open-world crime game</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23ffd23e'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' font-weight='bold' text-anchor='middle' fill='%231a1a1a'%3ES%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23f5c518'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' font-family='sans-serif' font-weight='bold' fill='%23111'%3ES%3C/text%3E%3C/svg%3E">
 <style>
   html, body {
     margin: 0;
     padding: 0;
-    background: #0a0a12;
-    color: #eee;
-    font-family: system-ui, -apple-system, sans-serif;
+    background: #0b0e14;
+    color: #e8e8e8;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100%;
   }
   body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    min-height: 100vh;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px;
+    box-sizing: border-box;
   }
   h1 {
-    margin: 14px 0 8px;
-    font-size: 22px;
+    margin: 0;
+    font-size: 20px;
     letter-spacing: 2px;
-    color: #ffd23e;
+    color: #f5c518;
+    text-transform: uppercase;
   }
-  #game {
+  #wrap {
+    position: relative;
+    line-height: 0;
+  }
+  canvas {
     display: block;
-    width: 1280px;
-    height: 800px;
-    max-width: 96vw;
-    background: #1a2a1a;
-    border: 2px solid #333;
+    width: min(1280px, 96vw);
+    height: auto;
+    background: #10141f;
+    border: 2px solid #2a3345;
     border-radius: 8px;
-    outline: none;
+    image-rendering: auto;
   }
   #status {
-    margin-top: 8px;
     font-size: 13px;
-    color: #9fd8ff;
+    color: #9aa7bd;
     min-height: 18px;
+    text-align: center;
   }
-  .fallback {
-    margin-top: 6px;
-    font-size: 13px;
-    color: #aaa;
+  #status b { color: #e8e8e8; }
+  .hint {
+    font-size: 12px;
+    color: #6b7688;
+    text-align: center;
+    max-width: 760px;
+    line-height: 1.5;
+  }
+  .hint kbd {
+    background: #1c2331;
+    border: 1px solid #39445a;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    color: #dfe6f2;
   }
 </style>
 </head>
 <body>
-<h1>SOLMAR CITY</h1>
-<canvas id="game" width="1280" height="800" tabindex="0"></canvas>
-<div id="status">Solmar City. Press Enter or click New Game to play.</div>
-<p class="fallback">Solmar City. Press Enter or click New Game to play.</p>
-<script type="module" src="./src/main.js"></script>
+  <h1>Solmar City</h1>
+  <div id="wrap">
+    <canvas id="game" width="1280" height="800"></canvas>
+  </div>
+  <div id="status">Solmar City. Press Enter or click New Game to play.</div>
+  <div class="hint">
+    <kbd>W A S D</kbd> move &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>E</kbd> steal car / board boat &nbsp;·&nbsp; <kbd>Space</kbd> punch / handbrake &nbsp;·&nbsp; click to shoot &nbsp;·&nbsp; <kbd>Q</kbd> radio &nbsp;·&nbsp; <kbd>M</kbd> mute &nbsp;·&nbsp; <kbd>P</kbd> pause
+  </div>
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>
