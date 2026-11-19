@@ -27,23 +27,24 @@
     width: min(1280px, 96vw);
     height: auto;
     background: #101623;
-    border: 1px solid #2a3348;
+    border: 1px solid #2a3345;
     border-radius: 8px;
-    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
-    outline: none;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
   }
   .hint {
     font-size: 14px;
     color: #9aa7bd;
     text-align: center;
+    line-height: 1.6;
     max-width: 1280px;
   }
   .hint b { color: #e8e8e8; }
 </style>
 </head>
 <body>
-<canvas id="game" width="1280" height="800" tabindex="0"></canvas>
-<p class="hint">Solmar City. Press Enter or click New Game to play. WASD drive &amp; walk, E interact, Space punch / handbrake, Q radio, M mute.</p>
+<canvas id="game" width="1280" height="800"></canvas>
+<p class="hint">Solmar City. Press Enter or click New Game to play.<br>
+<b>WASD</b> move &amp; drive &nbsp;·&nbsp; <b>E</b> steal a car / board a boat &nbsp;·&nbsp; <b>Space</b> punch / handbrake &nbsp;·&nbsp; <b>Q</b> radio &nbsp;·&nbsp; <b>M</b> mute &nbsp;·&nbsp; <b>P</b> pause</p>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

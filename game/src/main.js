@@ -1,224 +1,370 @@
-// main.js — Solmar City entrypoint: screens, game loop, save, radio, shots.
-// Written from the v2 spec only. The loop builds the plain VALUES input
-// object each frame and hands it to world.step. updateMission never
-// auto-starts the next mission: THIS file starts it on MISSION_COMPLETE.
+// Solmar City — main.js: boot, game loop, menus, save/load.
+//
+// Flow: title screen (New Game / Continue) -> game loop -> pause (P).
+// Every frame builds a plain VALUES input object for world.step — no
+// functions inside it — and turns the returned event bits into sounds
+// and banners. The radio ticks every frame; Q cycles stations.
+//
+// Screenshots: ?shot=start|city|chase|harbor&seed=1 stages a live scene
+// through shots.js before the first frame.
 
-import { createWorld, EV } from './world.js';
-import { createInput, pollInput, clearClick, ACTIONS } from './input.js';
-import { drawGame, drawTitleScreen, drawPauseOverlay } from './render.js';
-import { saveGame, loadSave, saveInfoText, applySave } from './save.js';
-import { MISSIONS, startMission, currentObjective, nearestStealableCar } from './missions.js';
-import { cycleRadio, ensureRadio, tickRadio, setRadioMuted } from './radio.js';
-import { nearestBoat } from './boats.js';
-import { stageShot, SHOT_NAMES } from './shots.js';
+import { createWorld, EV, saveSnapshot, applySave } from './world.js';
+import { render, titleButtons } from './render.js';
+import {
+  createInput,
+  ACTION_CONFIRM,
+  ACTION_PAUSE,
+  ACTION_INTERACT,
+} from './input.js';
+import { startMission, MISSIONS } from './missions.js';
+import { stageShot } from './shots.js';
+import * as RadioMod from './radio.js';
+import * as SaveMod from './save.js';
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
+const SAVE_KEY_FALLBACK = 'solmar-city-save-v1';
 
-const params = new URLSearchParams(window.location.search);
-const shotParam = params.get('shot');
-const seedParam = parseInt(params.get('seed') || '1', 10) || 1;
-
-let world = createWorld(seedParam);
-let state = world.state;
-let mode = 'title'; // 'title' | 'game' | 'paused'
-let titleButtons = [];
-let saveTimer = 0;
-
-const NEUTRAL_INPUT = {
-  mx: 0,
-  my: 0,
-  aimX: 0,
-  aimY: 0,
-  actions: 0,
-  shooting: false,
-  running: false,
-  steer: 0,
-  throttle: 0,
-  handbrake: false,
-};
-
-const input = createInput(canvas);
-
-function dist(ax, ay, bx, by) {
-  const dx = ax - bx;
-  const dy = ay - by;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-// Contextual prompt line (boat lines, car lines, crates, vault).
-function computeHint(st) {
-  const p = st.player;
-  if (st.dead || st.busted) return '';
-  if (p.inBoat) return 'E — step ashore    ·    W/S — sail    ·    Q — radio';
-  if (p.inCar) return 'E — get out    ·    Space — handbrake    ·    Q — radio';
-  const obj = currentObjective(st);
-  if (obj && obj.kind === 'collect' && st.crates) {
-    for (const c of st.crates) {
-      if (!c.taken && dist(p.x, p.y, c.x, c.y) < 60) return 'E — grab the crate';
+// --- save helpers (save.js owns localStorage; fall back to nothing) ---------
+function doSave(state) {
+  if (typeof SaveMod.saveGame === 'function') {
+    try {
+      return SaveMod.saveGame(state);
+    } catch (e) {
+      return false;
     }
   }
-  if (obj && obj.kind === 'interact' && obj.key === 'bank') {
-    const bank = st.city.landmarks.bank;
-    if (bank && dist(p.x, p.y, bank.x, bank.y) < 120) return 'E — grab the vault!';
+  return false;
+}
+
+function doLoad() {
+  if (typeof SaveMod.loadSave === 'function') {
+    try {
+      return SaveMod.loadSave();
+    } catch (e) {
+      return null;
+    }
   }
-  if (nearestBoat(st, p.x, p.y)) return 'E — board the boat';
-  if (nearestStealableCar(st)) return 'E — steal the car';
-  if (!st.mission && !st.storyComplete) return 'Enter — start the next mission';
+  return null;
+}
+
+function doSaveText(save) {
+  if (typeof SaveMod.saveInfoText === 'function') {
+    try {
+      return SaveMod.saveInfoText(save) || '';
+    } catch (e) {
+      return '';
+    }
+  }
   return '';
 }
 
-function startNew() {
-  world = createWorld(seedParam);
-  state = world.state;
-  if (state.audio) state.audio.ensure();
-  if (state.radio) ensureRadio(state.radio);
-  startMission(state, 0);
-  mode = 'game';
-  saveTimer = 0;
+// --- boot -------------------------------------------------------------------
+
+function getCanvas() {
+  if (typeof document === 'undefined') return null;
+  return document.getElementById('game');
 }
 
-function startContinue() {
-  const save = loadSave();
-  if (!save) {
-    startNew();
-    return;
-  }
-  world = createWorld(save.seed || seedParam);
-  state = world.state;
-  applySave(state, save);
-  if (state.audio) state.audio.ensure();
-  if (state.radio) ensureRadio(state.radio);
-  if (!state.storyComplete && !state.mission) {
-    startMission(state, state.missionIndex || 0);
-  }
-  mode = 'game';
-  saveTimer = 0;
+function getParams() {
+  if (typeof window === 'undefined' || !window.location) return new URLSearchParams();
+  return new URLSearchParams(window.location.search);
 }
 
-function toggleMute() {
-  state.muted = !state.muted;
-  if (state.audio) state.audio.setMuted(state.muted);
-  if (state.radio) setRadioMuted(state.radio, state.muted);
-}
+function startLoop() {
+  const canvas = getCanvas();
+  if (!canvas) return null;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const vw = canvas.width || 1280;
+  const vh = canvas.height || 800;
 
-// --- title screen input ---
-function handleTitleInput(frameInput) {
-  if (input.mouse.clicked) {
-    const cx = input.mouse.clickX;
-    const cy = input.mouse.clickY;
-    clearClick(input);
-    for (const b of titleButtons) {
-      if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
-        if (b.id === 'new') startNew();
-        else startContinue();
-        return;
+  const params = getParams();
+  const shotName = params.get('shot') || '';
+  const seed = parseInt(params.get('seed') || '1', 10) || 1;
+
+  const world = createWorld(seed);
+  let state = world.state;
+  const input = createInput(canvas);
+
+  let mode = 'title';
+  let banner = null;
+  let overlay = null;
+  let savedGame = doLoad();
+  let muted = false;
+
+  if (shotName) {
+    stageShot(state, shotName);
+    // 'start' stays on the title screen; the rest drop straight into play.
+    mode = shotName === 'start' ? 'title' : 'game';
+    if (mode === 'game') {
+      // No mission auto-start for staged shots: the shot sets its own.
+      if (state.audio && typeof state.audio.ensure === 'function') {
+        try {
+          state.audio.ensure();
+        } catch (e) {
+          /* audio needs a gesture; the shot still renders fine */
+        }
       }
     }
   }
-  if (frameInput.actions & ACTIONS.CONFIRM) {
-    if (loadSave()) startContinue();
-    else startNew();
-  }
-}
 
-// --- one frame ---
-let last = performance.now();
-function frame(now) {
-  const dt = Math.min(Math.max((now - last) / 1000, 0), 0.05);
-  last = now;
-  const t = now / 1000;
-
-  if (mode === 'title') {
-    const frameInput = pollInput(input, state.camera, canvas.width, canvas.height);
-    handleTitleInput(frameInput);
-    const save = loadSave();
-    titleButtons = drawTitleScreen(ctx, canvas.width, canvas.height, saveInfoText(save));
-    requestAnimationFrame(frame);
-    return;
+  // Expose the live world for debugging / headless playthroughs.
+  if (typeof window !== 'undefined') {
+    window.solmar = {
+      get state() {
+        return state;
+      },
+      world,
+      get mode() {
+        return mode;
+      },
+    };
   }
 
-  if (mode === 'paused') {
-    const frameInput = pollInput(input, state.camera, canvas.width, canvas.height);
-    if (frameInput.actions & ACTIONS.PAUSE) mode = 'game';
-    if (frameInput.actions & ACTIONS.MUTE) toggleMute();
-    if (frameInput.actions & ACTIONS.RADIO) {
-      ensureRadio(state.radio);
-      cycleRadio(state.radio);
+  function showBanner(text, sub, color, seconds) {
+    banner = {
+      text,
+      sub: sub || '',
+      color: color || '#f7c948',
+      until: (state.playTime || 0) + (seconds || 3.5),
+    };
+  }
+
+  function showOverlay(text, sub, color, seconds) {
+    overlay = {
+      text,
+      sub: sub || '',
+      color: color || '#e03131',
+      until: (state.playTime || 0) + (seconds || 1.6),
+    };
+  }
+
+  function newGame() {
+    // Fresh world, same seed family: reset() re-rolls the world.
+    world.reset();
+    state = world.state;
+    if (typeof SaveMod.clearSave === 'function') {
+      try {
+        SaveMod.clearSave();
+      } catch (e) {
+        /* ignore */
+      }
     }
-    drawGame(ctx, state, t);
-    drawPauseOverlay(ctx, canvas.width, canvas.height);
-    requestAnimationFrame(frame);
-    return;
-  }
-
-  // --- game ---
-  const frameInput = pollInput(input, state.camera, canvas.width, canvas.height);
-  if (frameInput.actions & ACTIONS.PAUSE) {
-    mode = 'paused';
-    saveGame(state);
-    requestAnimationFrame(frame);
-    return;
-  }
-  if (frameInput.actions & ACTIONS.MUTE) toggleMute();
-  if (frameInput.actions & ACTIONS.RADIO) {
-    ensureRadio(state.radio);
-    cycleRadio(state.radio);
-  }
-
-  const events = world.step(frameInput, dt);
-  if (events & EV.ENEMY_SHOT) {
-    if (state.audio) state.audio.enemyShot();
-  }
-  if (events & EV.MISSION_COMPLETE) {
-    saveGame(state);
-    // Start the next mission here — updateMission never does it.
-    if (!state.storyComplete && state.missionsDone < MISSIONS.length) {
-      startMission(state, state.missionsDone);
-    }
-  }
-  if (state.radio) tickRadio(state.radio);
-  if (state.audio) state.audio.stepMusic();
-
-  state.hint = computeHint(state);
-
-  saveTimer += dt;
-  if (saveTimer > 20) {
-    saveTimer = 0;
-    saveGame(state);
-  }
-
-  drawGame(ctx, state, t);
-  requestAnimationFrame(frame);
-}
-
-// --- screenshot staging (?shot=name&seed=n) ---
-if (shotParam && SHOT_NAMES.includes(shotParam)) {
-  if (shotParam === 'start') {
-    mode = 'title';
-  } else {
-    stageShot(state, shotParam);
+    savedGame = null;
+    banner = null;
+    overlay = null;
     mode = 'game';
-    // Let traffic / police / roadblocks settle before the capture.
-    for (let i = 0; i < 40; i++) {
-      const settle = { ...NEUTRAL_INPUT, aimX: state.player.x, aimY: state.player.y };
-      world.step(settle, 1 / 60);
+    startMission(state, 0);
+    showBanner('M1 Hot Wheels — $200', "Steal a car, then reach Ray's Garage", '#f7c948', 4);
+    if (state.audio && typeof state.audio.ensure === 'function') {
+      try {
+        state.audio.ensure();
+      } catch (e) {
+        /* needs a gesture; fine */
+      }
     }
+    if (state.radio && typeof RadioMod.ensureRadio === 'function') {
+      try {
+        RadioMod.ensureRadio(state.radio);
+      } catch (e) {
+        /* needs a gesture; fine */
+      }
+    }
+  }
+
+  function continueGame() {
+    if (!savedGame) return;
+    applySave(state, savedGame);
+    banner = null;
+    overlay = null;
+    mode = 'game';
+    if (state.audio && typeof state.audio.ensure === 'function') {
+      try {
+        state.audio.ensure();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }
+
+  function handleTitleClick(click) {
+    if (!click) return false;
+    const btns = titleButtons(vw, vh);
+    const inside = (b) =>
+      click.x >= b.x && click.x <= b.x + b.w && click.y >= b.y && click.y <= b.y + b.h;
+    if (inside(btns.newGame)) {
+      newGame();
+      return true;
+    }
+    if (savedGame && inside(btns.cont)) {
+      continueGame();
+      return true;
+    }
+    return false;
+  }
+
+  function handleEvents(events) {
+    const audio = state.audio;
+    if (!audio) return;
+    const safe = (fn, ...args) => {
+      try {
+        if (typeof fn === 'function') fn(...args);
+      } catch (e) {
+        /* a sound must never break the game */
+      }
+    };
+    if (events & EV.SHOT) safe(audio.shot);
+    if (events & EV.PUNCH) safe(audio.punch);
+    if (events & EV.PICKUP) safe(audio.pickup, 'cash');
+    if (events & EV.CRASH) safe(audio.crash, 0.5);
+    if (events & EV.VAULT) safe(audio.pickup, 'cash');
+    if (events & EV.STEAL) safe(audio.click);
+    if (events & EV.MISSION) safe(audio.click);
+    if (events & EV.DIED) {
+      showOverlay('WASTED', 'You wake up at the Safehouse.', '#e03131', 1.8);
+      doSave(state);
+    }
+    if (events & EV.BUSTED) {
+      safe(audio.busted);
+      showOverlay('BUSTED', 'The cops drop you at the Safehouse.', '#2f7fe0', 1.8);
+      doSave(state);
+    }
+    if (events & EV.MISSION_COMPLETE) {
+      safe(audio.missionComplete);
+      const doneIndex = state.missionIndex - 1;
+      const def = MISSIONS[doneIndex];
+      if (state.storyComplete) {
+        showBanner(
+          'STORY COMPLETE — You are the King of Solmar!',
+          'All 12 missions done. Total payout $34,600.',
+          '#ffd43b',
+          6,
+        );
+      } else if (def) {
+        showBanner(
+          'MISSION COMPLETE — ' + def.id + ' ' + def.title + '  +$' + def.reward.toLocaleString('en-US'),
+          '',
+          '#37b24d',
+          3.5,
+        );
+      }
+      doSave(state);
+      // The next mission starts right away — no extra click needed.
+      if (!state.storyComplete && state.missionIndex < MISSIONS.length) {
+        startMission(state, state.missionIndex);
+        const next = MISSIONS[state.missionIndex];
+        if (next) {
+          showBanner(
+            next.id + ' ' + next.title + ' — $' + next.reward.toLocaleString('en-US'),
+            next.briefing,
+            '#f7c948',
+            4,
+          );
+        }
+      }
+    }
+  }
+
+  // --- the frame loop -------------------------------------------------------
+
+  let last = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const t = now || 0;
+    let dt = last ? (t - last) / 1000 : 1 / 60;
+    last = t;
+    if (dt > 0.1) dt = 0.1;
+    if (dt <= 0) dt = 1 / 60;
+
+    const actions = input.takeActions();
+    const click = input.consumeClick();
+
+    if (mode === 'title') {
+      if (click) handleTitleClick(click);
+      if (actions & ACTION_CONFIRM) {
+        if (savedGame) continueGame();
+        else newGame();
+      }
+      render(state, ctx, {
+        mode: 'title',
+        hasSave: !!savedGame,
+        saveText: doSaveText(savedGame),
+        muted,
+      });
+      return;
+    }
+
+    if (actions & ACTION_PAUSE) {
+      if (mode === 'game') {
+        mode = 'paused';
+        doSave(state);
+      } else if (mode === 'paused') {
+        mode = 'game';
+      }
+    }
+
+    if (mode === 'paused') {
+      render(state, ctx, { mode: 'paused', banner, overlay, muted });
+      return;
+    }
+
+    // Build the plain VALUES frame input for world.step.
+    const mv = input.moveVector();
+    const drv = input.driveControls();
+    const aim = input.aimWorld(state.camera, vw, vh);
+    const frameInput = {
+      mx: mv.mx,
+      my: mv.my,
+      aimX: aim.x,
+      aimY: aim.y,
+      actions,
+      shooting: !!input.mouse.down,
+      running: input.running(),
+      steer: drv.steer,
+      throttle: drv.throttle,
+      handbrake: input.handbrake(),
+    };
+
+    const events = world.step(frameInput, dt);
+    handleEvents(events);
+
+    // Radio keeps playing (no-op until its AudioContext exists).
+    if (state.radio && typeof RadioMod.tickRadio === 'function') {
+      try {
+        RadioMod.tickRadio(state.radio);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    // Mute state for the HUD (world toggles it on the M key).
+    if (state.audio && typeof state.audio.isMuted === 'function') {
+      try {
+        muted = !!state.audio.isMuted();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    // Clear stale banners / overlays.
+    if (banner && banner.until <= (state.playTime || 0)) banner = null;
+    if (overlay && overlay.until <= (state.playTime || 0)) overlay = null;
+
+    render(state, ctx, { mode: 'game', banner, overlay, muted });
+  }
+
+  requestAnimationFrame(frame);
+  return { world, state, input };
+}
+
+// Boot as soon as the page is ready. The script tag is a module at the
+// end of <body>, so the canvas already exists.
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startLoop);
+  } else {
+    startLoop();
   }
 }
 
-window.addEventListener('beforeunload', () => {
-  if (mode === 'game') saveGame(state);
-});
-
-// Debug handle for the playthrough harness.
-window.__solmar = {
-  get state() {
-    return state;
-  },
-  get world() {
-    return world;
-  },
-};
-
-requestAnimationFrame(frame);
+export { startLoop, SAVE_KEY_FALLBACK };
+export { saveSnapshot, applySave };

@@ -1,50 +1,57 @@
-// Traffic for Solmar City: 16 cars driving the road grid and 34
-// pedestrians strolling the streets. Cars follow grid nodes — pick a
-// neighbouring node, drive to it, pick again — so they always stay on
-// roads and never cut through buildings. Pedestrians pick random
-// street points and walk to them, panicking (running) when a car or a
-// gunshot gets too close.
+// Traffic: the cars cruising the road grid and the pedestrians
+// wandering the sidewalks. Cars follow the road nodes — they pick
+// a neighbouring junction each time they arrive at one — so they
+// never cut across blocks. Pedestrians stroll between random
+// street points.
 
-import { TRAFFIC_CARS, PEDESTRIANS } from './config.js';
-import { clamp, dist, wrapAngle, angleDiff } from './util.js';
+import { TRAFFIC_CARS, PEDESTRIANS, WORLD_W, WORLD_H } from './config.js';
 
 export const CAR_MODELS = ['sedan', 'van', 'taxi', 'truck', 'sport'];
 
-const CAR_COLORS = [
-  '#c23b2e', '#2e6fc2', '#d8a72e', '#3f8f5f', '#7a4fa3',
-  '#c2c2c2', '#2e2e2e', '#d86a2e', '#4fa3a3', '#a3b82e',
-];
+const MODEL_SPEED = {
+  sedan: 150,
+  van: 130,
+  taxi: 165,
+  truck: 110,
+  sport: 190,
+};
 
-const SHIRT_COLORS = [
-  '#d84f4f', '#4f7dd8', '#4fd88a', '#d8c84f', '#8a4fd8',
-  '#d88a4f', '#4fd8d8', '#e2e2e2', '#3a3a3a', '#d84f9e',
-];
+const MODEL_COLORS = {
+  sedan: ['#c23b2e', '#2e6fc2', '#d8d8d8', '#3a3a3a', '#7a4a9e'],
+  van: ['#e8e8e8', '#5a6b7a', '#b8a06a'],
+  taxi: ['#f5c518'],
+  truck: ['#4a7a3a', '#8a6a3a', '#5a5a5a'],
+  sport: ['#e03232', '#ffd60a', '#2f7fe0', '#111111'],
+};
 
-const SKIN_TONES = ['#e8b98d', '#c98d5f', '#8d5a3b', '#f0c8a0', '#a06a42'];
+const SHIRTS = ['#e8e8e8', '#c23b2e', '#2e6fc2', '#3a9e4a', '#e0a02e', '#7a4a9e', '#2e9e9e', '#d86a9e'];
+const SKINS = ['#e8b98a', '#c98d5f', '#8a5a3b', '#f0c8a0'];
 
-function randomCar(rng, city) {
-  const node = {
-    ix: rng.int(0, city.nodeCountX - 1),
-    iy: rng.int(0, city.nodeCountY - 1),
-  };
-  const pt = city.nodePoint(node.ix, node.iy);
+function draw(rng) {
+  if (typeof rng === 'function') return rng();
+  if (rng && typeof rng.next === 'function') return rng.next();
+  return Math.random();
+}
+
+function makeCar(rng, city) {
+  const node = city.nearestNode(
+    180 + draw(rng) * (WORLD_W - 360),
+    180 + draw(rng) * (WORLD_H - 360),
+  );
   const neighbours = city.nodeNeighbours(node.ix, node.iy);
-  const next = rng.pick(neighbours);
-  const model = rng.pick(CAR_MODELS);
-  const cruise = model === 'sport' ? rng.float(150, 190)
-    : model === 'truck' ? rng.float(80, 105)
-    : rng.float(105, 145);
+  const next = neighbours[Math.floor(draw(rng) * neighbours.length)];
+  const model = CAR_MODELS[Math.floor(draw(rng) * CAR_MODELS.length)];
+  const colors = MODEL_COLORS[model];
+  const point = city.nodePoint(node.ix, node.iy);
+  const target = city.nodePoint(next.ix, next.iy);
   return {
     kind: 'traffic',
-    x: pt.x + rng.float(-14, 14),
-    y: pt.y + rng.float(-14, 14),
-    angle: Math.atan2(
-      city.nodePoint(next.ix, next.iy).y - pt.y,
-      city.nodePoint(next.ix, next.iy).x - pt.x,
-    ),
-    speed: cruise * rng.float(0.7, 1),
-    cruise,
-    color: model === 'taxi' ? '#f2c230' : rng.pick(CAR_COLORS),
+    x: point.x,
+    y: point.y,
+    angle: Math.atan2(target.y - point.y, target.x - point.x),
+    speed: 0,
+    cruise: MODEL_SPEED[model] * (0.85 + draw(rng) * 0.3),
+    color: colors[Math.floor(draw(rng) * colors.length)],
     model,
     ix: node.ix,
     iy: node.iy,
@@ -52,126 +59,127 @@ function randomCar(rng, city) {
     fromIy: node.iy,
     nextIx: next.ix,
     nextIy: next.iy,
-    wait: 0,
-    wobble: rng.float(0, Math.PI * 2),
+    wait: draw(rng) * 1.5,
+    wobble: draw(rng) * Math.PI * 2,
   };
 }
 
-function randomPed(rng, city) {
-  const pt = city.randomStreetPoint(rng);
-  const target = city.randomStreetPoint(rng);
+function makePed(rng, city) {
+  const at = city.randomStreetPoint(rng);
+  const to = city.randomStreetPoint(rng);
   return {
-    x: pt.x + rng.float(-24, 24),
-    y: pt.y + rng.float(-24, 24),
-    angle: rng.float(0, Math.PI * 2),
-    speed: rng.float(28, 55),
-    shirt: rng.pick(SHIRT_COLORS),
-    skin: rng.pick(SKIN_TONES),
-    targetX: target.x,
-    targetY: target.y,
-    wait: rng.float(0, 2),
+    x: at.x,
+    y: at.y,
+    angle: Math.atan2(to.y - at.y, to.x - at.x),
+    speed: 42 + draw(rng) * 38,
+    shirt: SHIRTS[Math.floor(draw(rng) * SHIRTS.length)],
+    skin: SKINS[Math.floor(draw(rng) * SKINS.length)],
+    targetX: to.x,
+    targetY: to.y,
+    wait: 0,
     down: false,
-    panic: 0,
-    stepPhase: rng.float(0, Math.PI * 2),
+    panic: false,
+    stepPhase: draw(rng) * Math.PI * 2,
   };
 }
 
 export function createTraffic(rng, city) {
   const cars = [];
+  for (let i = 0; i < TRAFFIC_CARS; i += 1) cars.push(makeCar(rng, city));
   const peds = [];
-  for (let i = 0; i < TRAFFIC_CARS; i++) cars.push(randomCar(rng, city));
-  for (let i = 0; i < PEDESTRIANS; i++) peds.push(randomPed(rng, city));
+  for (let i = 0; i < PEDESTRIANS; i += 1) peds.push(makePed(rng, city));
   return { cars, peds };
 }
 
-export function nearestTrafficCar(traffic, x, y, maxDist) {
-  let best = null;
-  let bestD = maxDist * maxDist;
-  for (const car of traffic.cars) {
-    const dx = car.x - x;
-    const dy = car.y - y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD) {
-      bestD = d2;
-      best = car;
-    }
-  }
-  return best;
-}
-
-function stepCar(car, city, rng, dt) {
+function stepCar(car, city, rng, h) {
   if (car.wait > 0) {
-    car.wait -= dt;
+    car.wait -= h;
+    car.speed = 0;
     return;
   }
   const target = city.nodePoint(car.nextIx, car.nextIy);
   const dx = target.x - car.x;
   const dy = target.y - car.y;
-  const d = Math.hypot(dx, dy);
-  if (d < 12) {
-    // Reached the node: continue to a new neighbour (never U-turn
-    // straight back unless it is the only way out).
-    const options = city.nodeNeighbours(car.nextIx, car.nextIy)
-      .filter((n) => !(n.ix === car.fromIx && n.iy === car.fromIy));
-    const pool = options.length > 0
-      ? options
-      : city.nodeNeighbours(car.nextIx, car.nextIy);
-    const next = rng.pick(pool);
-    car.fromIx = car.nextIx;
-    car.fromIy = car.nextIy;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  const wantAngle = Math.atan2(dy, dx);
+  // Ease the nose toward the road ahead, then roll.
+  let diff = wantAngle - car.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  car.angle += Math.max(-2.4 * h, Math.min(2.4 * h, diff));
+  car.wobble += h * 2;
+  const wob = Math.sin(car.wobble) * 0.05;
+  car.speed = car.cruise;
+  car.x += Math.cos(car.angle + wob) * car.speed * h;
+  car.y += Math.sin(car.angle + wob) * car.speed * h;
+  if (d < 14) {
+    car.fromIx = car.ix;
+    car.fromIy = car.iy;
+    car.ix = car.nextIx;
+    car.iy = car.nextIy;
+    const options = city.nodeNeighbours(car.ix, car.iy);
+    const next = options[Math.floor(draw(rng) * options.length)];
     car.nextIx = next.ix;
     car.nextIy = next.iy;
-    if (rng.chance(0.08)) car.wait = rng.float(0.5, 1.5);
-    return;
+    const np = city.nodePoint(next.ix, next.iy);
+    car.angle = Math.atan2(np.y - car.y, np.x - car.x);
+    car.x = city.nodePoint(car.ix, car.iy).x;
+    car.y = city.nodePoint(car.ix, car.iy).y;
+    if (draw(rng) < 0.18) car.wait = 0.5 + draw(rng) * 1.2;
   }
-  const wantAngle = Math.atan2(dy, dx);
-  const turn = clamp(angleDiff(car.angle, wantAngle), -2.2 * dt, 2.2 * dt);
-  car.angle = wrapAngle(car.angle + turn);
-  car.speed += (car.cruise - car.speed) * Math.min(1, dt * 0.8);
-  // A gentle wobble keeps cars off the exact centre line.
-  car.wobble += dt * 0.7;
-  const lateral = Math.sin(car.wobble) * 6;
-  const px = -Math.sin(car.angle);
-  const py = Math.cos(car.angle);
-  car.x += Math.cos(car.angle) * car.speed * dt + px * lateral * dt;
-  car.y += Math.sin(car.angle) * car.speed * dt + py * lateral * dt;
 }
 
-function stepPed(ped, city, rng, dt, danger) {
-  if (ped.down) return;
-  ped.stepPhase += dt * 6;
-  if (danger) ped.panic = Math.max(ped.panic, 2.5);
-  if (ped.panic > 0) ped.panic -= dt;
+function stepPed(ped, city, rng, h) {
   if (ped.wait > 0) {
-    ped.wait -= dt;
+    ped.wait -= h;
     return;
   }
-  const d = dist(ped.x, ped.y, ped.targetX, ped.targetY);
+  const dx = ped.targetX - ped.x;
+  const dy = ped.targetY - ped.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
   if (d < 10) {
-    const next = city.randomStreetPoint(rng);
-    ped.targetX = next.x;
-    ped.targetY = next.y;
-    ped.wait = rng.float(0, 3);
+    if (draw(rng) < 0.25) {
+      ped.wait = 1 + draw(rng) * 3;
+      return;
+    }
+    const to = city.randomStreetPoint(rng);
+    ped.targetX = to.x;
+    ped.targetY = to.y;
     return;
   }
-  const speed = ped.panic > 0 ? ped.speed * 2.6 : ped.speed;
-  const wantAngle = Math.atan2(ped.targetY - ped.y, ped.targetX - ped.x);
-  ped.angle = wrapAngle(ped.angle + clamp(angleDiff(ped.angle, wantAngle), -3 * dt, 3 * dt));
-  ped.x += Math.cos(ped.angle) * speed * dt;
-  ped.y += Math.sin(ped.angle) * speed * dt;
-  const fixed = city.resolveCircle(ped.x, ped.y, 8);
-  ped.x = fixed.x;
-  ped.y = clamp(fixed.y, 0, 2010);
+  ped.angle = Math.atan2(dy, dx);
+  ped.x += Math.cos(ped.angle) * ped.speed * h;
+  ped.y += Math.sin(ped.angle) * ped.speed * h;
+  ped.stepPhase += h * ped.speed * 0.09;
 }
 
-// One traffic tick. `danger` is an optional {x, y} point (a gunshot,
-// a speeding car) that makes nearby pedestrians panic and run.
-export function stepTraffic(traffic, city, rng, dt, danger) {
-  for (const car of traffic.cars) stepCar(car, city, rng, dt);
-  for (const ped of traffic.peds) {
-    const nearDanger = danger && dist(ped.x, ped.y, danger.x, danger.y) < 260;
-    stepPed(ped, city, rng, dt, nearDanger);
+// Move every car and pedestrian one frame. Large dt is split so
+// a hitch never teleports a car past a junction.
+export function stepTraffic(traffic, city, rng, dt) {
+  let remaining = dt;
+  while (remaining > 0) {
+    const h = Math.min(remaining, 1 / 30);
+    remaining -= h;
+    for (const car of traffic.cars) stepCar(car, city, rng, h);
+    for (const ped of traffic.peds) {
+      if (!ped.down) stepPed(ped, city, rng, h);
+    }
   }
 }
 
-export default createTraffic;
+// Nearest traffic car within maxDist of (x, y), or null.
+export function nearestTrafficCar(traffic, x, y, maxDist) {
+  const limit = maxDist !== undefined ? maxDist : 80;
+  let best = null;
+  let bestD = limit;
+  for (const car of traffic.cars) {
+    const dx = car.x - x;
+    const dy = car.y - y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < bestD) {
+      bestD = d;
+      best = car;
+    }
+  }
+  return best;
+}

@@ -1,145 +1,157 @@
-// input.js — Keyboard + mouse input for Solmar City.
-// Written from the v2 spec only. pollInput() builds the plain VALUES
-// object world.step wants each frame: { mx, my, aimX, aimY, actions,
-// shooting, running, steer, throttle, handbrake }.
-// Keys: Enter confirm, P/Esc pause, E interact, Space punch/handbrake,
-// M mute, Q radio. Mouse: aim + shoot.
+// Solmar City — input.js: keyboard + mouse.
+//
+// Keys: Enter confirm, P/Esc pause, E interact, Space punch (on foot) /
+// handbrake (while driving, held), M mute, Q radio. Mouse: aim + shoot.
+//
+// Actions are EDGE-triggered: takeActions() returns the bits pressed
+// since the last frame and clears them, so one key press is one action.
+// Held state (handbrake, running, driving) is read separately every frame.
 
-export const ACTIONS = {
-  CONFIRM: 1,
-  PAUSE: 2,
-  INTERACT: 4,
-  PUNCH: 8,
-  MUTE: 16,
-  RADIO: 32,
-};
+// Action bits — these numbers are the contract with world.js.
+export const ACTION_CONFIRM = 1;
+export const ACTION_PAUSE = 2;
+export const ACTION_INTERACT = 4;
+export const ACTION_PUNCH = 8;
+export const ACTION_MUTE = 16;
+export const ACTION_RADIO = 32;
 
-const KEY_TO_ACTION = {
-  Enter: ACTIONS.CONFIRM,
-  KeyP: ACTIONS.PAUSE,
-  Escape: ACTIONS.PAUSE,
-  KeyE: ACTIONS.INTERACT,
-  Space: ACTIONS.PUNCH,
-  KeyM: ACTIONS.MUTE,
-  KeyQ: ACTIONS.RADIO,
-};
+const PREVENT_DEFAULT = new Set([
+  'Space',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+]);
 
 export function createInput(canvas) {
-  const input = {
-    keys: new Set(),
-    pressed: new Set(),
-    mouse: { x: 0, y: 0, down: false, clicked: false, clickX: 0, clickY: 0 },
-    canvas,
-  };
+  const keys = new Set();
+  let pending = 0;
+  const mouse = { x: 0, y: 0, down: false, clicked: false, clickX: 0, clickY: 0 };
+  let attached = false;
 
   function onKeyDown(e) {
-    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
-    if (!e.repeat) input.pressed.add(e.code);
-    input.keys.add(e.code);
+    if (PREVENT_DEFAULT.has(e.code)) e.preventDefault();
+    if (e.repeat) return;
+    keys.add(e.code);
+    if (e.code === 'Enter') pending |= ACTION_CONFIRM;
+    else if (e.code === 'KeyP' || e.code === 'Escape') pending |= ACTION_PAUSE;
+    else if (e.code === 'KeyE') pending |= ACTION_INTERACT;
+    else if (e.code === 'Space') pending |= ACTION_PUNCH;
+    else if (e.code === 'KeyM') pending |= ACTION_MUTE;
+    else if (e.code === 'KeyQ') pending |= ACTION_RADIO;
   }
+
   function onKeyUp(e) {
-    input.keys.delete(e.code);
+    keys.delete(e.code);
   }
+
   function onBlur() {
-    input.keys.clear();
+    keys.clear();
+    mouse.down = false;
   }
-  function mousePos(e) {
-    const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }
+
   function onMouseMove(e) {
-    const pos = mousePos(e);
-    input.mouse.x = pos.x;
-    input.mouse.y = pos.y;
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
   }
+
   function onMouseDown(e) {
-    const pos = mousePos(e);
-    input.mouse.x = pos.x;
-    input.mouse.y = pos.y;
-    input.mouse.down = true;
-    input.mouse.clicked = true;
-    input.mouse.clickX = pos.x;
-    input.mouse.clickY = pos.y;
+    onMouseMove(e);
+    mouse.down = true;
+    mouse.clicked = true;
+    mouse.clickX = mouse.x;
+    mouse.clickY = mouse.y;
   }
+
   function onMouseUp() {
-    input.mouse.down = false;
+    mouse.down = false;
   }
 
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', onBlur);
-  canvas.addEventListener('mousemove', onMouseMove);
-  canvas.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mouseup', onMouseUp);
+  function attach() {
+    if (attached || typeof window === 'undefined' || !canvas || !canvas.addEventListener) return;
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mouseup', onMouseUp);
+    attached = true;
+  }
 
-  input.detach = () => {
+  function destroy() {
+    if (!attached || typeof window === 'undefined') return;
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
-    canvas.removeEventListener('mousemove', onMouseMove);
-    canvas.removeEventListener('mousedown', onMouseDown);
+    if (canvas) {
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mousedown', onMouseDown);
+    }
     window.removeEventListener('mouseup', onMouseUp);
-  };
-  return input;
-}
-
-// Space held = handbrake while driving (on foot it punches instead).
-export function handbrake(input) {
-  return input.keys.has('Space');
-}
-
-export function isDown(input, code) {
-  return input.keys.has(code);
-}
-
-export function clearClick(input) {
-  input.mouse.clicked = false;
-}
-
-// Build the frame input values. Edge-triggered actions come from the
-// pressed set (keys hit since the last poll) and are consumed here.
-export function pollInput(input, camera, viewW, viewH) {
-  const keys = input.keys;
-  let mx = 0;
-  let my = 0;
-  if (keys.has('KeyA') || keys.has('ArrowLeft')) mx -= 1;
-  if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
-  if (keys.has('KeyW') || keys.has('ArrowUp')) my -= 1;
-  if (keys.has('KeyS') || keys.has('ArrowDown')) my += 1;
-  const len = Math.sqrt(mx * mx + my * my);
-  if (len > 1) {
-    mx /= len;
-    my /= len;
+    attached = false;
   }
 
-  const steer = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
-    - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-  const throttle = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
-    - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-  const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
-
-  let actions = 0;
-  for (const code of input.pressed) {
-    const bit = KEY_TO_ACTION[code];
-    if (bit) actions |= bit;
-  }
-  input.pressed.clear();
-
-  const camX = camera ? camera.x : 0;
-  const camY = camera ? camera.y : 0;
-  const aimX = camX + (input.mouse.x - viewW / 2);
-  const aimY = camY + (input.mouse.y - viewH / 2);
+  attach();
 
   return {
-    mx,
-    my,
-    aimX,
-    aimY,
-    actions,
-    shooting: input.mouse.down,
-    running,
-    steer,
-    throttle,
-    handbrake: handbrake(input),
+    keys,
+    mouse,
+
+    // Edge-triggered action bits pressed since the last call.
+    takeActions() {
+      const a = pending;
+      pending = 0;
+      return a;
+    },
+
+    // WASD / arrows as a -1..1 move vector (on foot).
+    moveVector() {
+      let mx = 0;
+      let my = 0;
+      if (keys.has('KeyA') || keys.has('ArrowLeft')) mx -= 1;
+      if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
+      if (keys.has('KeyW') || keys.has('ArrowUp')) my -= 1;
+      if (keys.has('KeyS') || keys.has('ArrowDown')) my += 1;
+      return { mx, my };
+    },
+
+    // Driving: steer -1..1, throttle -1..1 (W = gas, S = brake/reverse).
+    driveControls() {
+      let steer = 0;
+      let throttle = 0;
+      if (keys.has('KeyA') || keys.has('ArrowLeft')) steer -= 1;
+      if (keys.has('KeyD') || keys.has('ArrowRight')) steer += 1;
+      if (keys.has('KeyW') || keys.has('ArrowUp')) throttle += 1;
+      if (keys.has('KeyS') || keys.has('ArrowDown')) throttle -= 1;
+      return { steer, throttle };
+    },
+
+    // Shift held = run.
+    running() {
+      return keys.has('ShiftLeft') || keys.has('ShiftRight');
+    },
+
+    // Space held while driving = handbrake.
+    handbrake() {
+      return keys.has('Space');
+    },
+
+    // Mouse position translated into world coordinates.
+    aimWorld(camera, vw, vh) {
+      return {
+        x: mouse.x + camera.x - vw / 2,
+        y: mouse.y + camera.y - vh / 2,
+      };
+    },
+
+    // The last click (canvas coords), or null. Consumes it.
+    consumeClick() {
+      if (!mouse.clicked) return null;
+      mouse.clicked = false;
+      return { x: mouse.clickX, y: mouse.clickY };
+    },
+
+    destroy,
   };
 }

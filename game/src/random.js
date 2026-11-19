@@ -1,66 +1,89 @@
-// Seeded RNG for Solmar City — every random draw in the game flows
-// through here so a fixed seed always builds the same city, the same
-// traffic and the same coin spots. Mulberry32: small, fast, good enough
-// for a game, and it never touches Math.random so replays stay stable.
+// Seeded random helpers for Solmar City.
+//
+// Everything random in the game flows through one small deterministic
+// generator (mulberry32): same seed, same city, same traffic, same
+// coins. The generator is a callable function — rng() rolls one float
+// in [0, 1) — with the usual helpers hanging off it, so callers can
+// use whichever shape reads best: rng.next(), rng.range(a, b),
+// rng.pick(list), or the plain module functions below.
 
-export function createRng(seed) {
-  let a = seed >>> 0;
-  if (a === 0) a = 0x9e3779b9;
-  const rng = {
-    seed: a,
-    next() {
-      a |= 0;
-      a = (a + 0x6d2b79f5) | 0;
-      let t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    },
-    float(min, max) {
-      if (max === undefined) {
-        max = min === undefined ? 1 : min;
-        min = 0;
-      }
-      return min + rng.next() * (max - min);
-    },
-    int(min, max) {
-      return Math.floor(rng.float(min, max + 1));
-    },
-    pick(list) {
-      return list[Math.floor(rng.next() * list.length)];
-    },
-    chance(p) {
-      return rng.next() < p;
-    },
-    sign() {
-      return rng.next() < 0.5 ? -1 : 1;
-    },
-    shuffle(list) {
-      const out = list.slice();
-      for (let i = out.length - 1; i > 0; i--) {
-        const j = Math.floor(rng.next() * (i + 1));
-        const tmp = out[i];
-        out[i] = out[j];
-        out[j] = tmp;
-      }
-      return out;
-    },
+function draw(rng) {
+  if (typeof rng === 'function') return rng();
+  if (rng && typeof rng.next === 'function') return rng.next();
+  return Math.random();
+}
+
+export function createRng(seed = 1) {
+  const startSeed = (seed >>> 0) || 1;
+  let s = startSeed;
+
+  function next() {
+    s |= 0;
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  // The generator itself is callable: rng() is one float in [0, 1).
+  function rng() {
+    return next();
+  }
+  rng.next = next;
+  rng.seed = startSeed;
+  rng.range = (min, max) => min + next() * (max - min);
+  rng.int = (min, max) => min + Math.floor(next() * (max - min + 1));
+  rng.pick = (list) => list[Math.floor(next() * list.length)];
+  rng.chance = (p) => next() < p;
+  rng.sign = () => (next() < 0.5 ? -1 : 1);
+  rng.shuffle = (list) => {
+    const out = list.slice();
+    for (let i = out.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(next() * (i + 1));
+      const tmp = out[i];
+      out[i] = out[j];
+      out[j] = tmp;
+    }
+    return out;
   };
   return rng;
 }
 
-// Turn any string (a seed word, a player name) into a 32-bit seed.
-export function seedFromString(text) {
-  let h = 2166136261;
-  const s = String(text);
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
+// Same generator under its classic name.
+export function mulberry32(seed = 1) {
+  return createRng(seed);
 }
 
-// A throwaway RNG for one-off cosmetic draws (particles, flashes)
-// that must not disturb the seeded stream.
-export function cosmeticRng() {
-  return createRng((Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0);
+export function createRandom(seed = 1) {
+  return createRng(seed);
+}
+
+// Plain helpers that take any rng (a createRng result, a bare
+// function, or nothing at all — then Math.random fills in).
+
+export function randRange(rng, min, max) {
+  return min + draw(rng) * (max - min);
+}
+
+export function randInt(rng, min, max) {
+  return min + Math.floor(draw(rng) * (max - min + 1));
+}
+
+export function pick(rng, list) {
+  return list[Math.floor(draw(rng) * list.length)];
+}
+
+export function chance(rng, p) {
+  return draw(rng) < p;
+}
+
+export function shuffle(rng, list) {
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(draw(rng) * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
 }

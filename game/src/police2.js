@@ -1,10 +1,12 @@
-// Deeper police AI for Solmar City: roadblocks at 3+ stars and a
-// police helicopter at 4-5 stars. This module only READS the wanted
-// level — world.js owns stars and decay. Roadblock cruisers are
-// pushed into state.police.cars too (with roadblock: true) so the
-// renderer and the collision code see them; stepPolice skips moving
-// them. The helicopter is visual only: it hovers above the player
-// with a spotlight circle on the ground.
+// Deeper police AI: roadblocks and the helicopter.
+//
+// At 3+ stars, two parked cruisers block the road ahead of the
+// player. They are pushed into state.police.cars with
+// roadblock: true — stepPolice never moves them — and they are
+// pulled out again below 3 stars. At 4–5 stars a helicopter
+// hovers over the player with a spotlight on the ground; it
+// despawns when the heat hits zero. The heli is visual only:
+// it never shoots, it never busts.
 
 import { clamp } from './util.js';
 
@@ -16,86 +18,87 @@ export function createPolice2() {
   };
 }
 
-// Spotlight circle on the ground under the helicopter, or null when
-// there is no helicopter in the air.
 export function heliSpotlight(state) {
-  if (!state.police2 || !state.police2.heli) return null;
+  const p2 = state.police2;
+  if (!p2 || !p2.heli) return null;
   return { x: state.player.x, y: state.player.y, r: 130 };
 }
 
+function removeRoadblocks(state) {
+  const p2 = state.police2;
+  if (!p2) return;
+  if (state.police) {
+    state.police.cars = state.police.cars.filter((c) => !c.roadblock);
+  }
+  p2.roadblocks = [];
+}
+
 function spawnRoadblocks(state) {
+  const p2 = state.police2;
   const p = state.player;
-  const city = state.city;
-  const police = state.police;
-  // Two cruisers parked across the road ahead of the player, one on
-  // each side of the centre line, noses pointing at the player.
-  const ahead = city.nearestRoadPoint(
-    p.x + Math.cos(p.angle) * 230,
-    p.y + Math.sin(p.angle) * 230,
-  );
-  const fx = Math.cos(p.angle);
-  const fy = Math.sin(p.angle);
-  const px = -fy;
-  const py = fx;
-  const made = [];
+  // Two cruisers across the road ahead of the player, parked
+  // nose-to-tail across the lane, 300px up the road.
+  const ahead = 300;
+  const ax = p.x + Math.cos(p.angle) * ahead;
+  const ay = p.y + Math.sin(p.angle) * ahead;
+  const px = -Math.sin(p.angle);
+  const py = Math.cos(p.angle);
+  const across = p.angle + Math.PI / 2;
   for (const side of [-1, 1]) {
     const car = {
       kind: 'police',
-      x: ahead.x + px * 26 * side,
-      y: ahead.y + py * 26 * side,
-      angle: Math.atan2(p.y - ahead.y, p.x - ahead.x),
+      x: ax + px * 38 * side,
+      y: ay + py * 38 * side,
+      angle: across,
       speed: 0,
-      cruise: 0,
-      color: '#20242e',
-      model: 'cruiser',
+      color: '#20262e',
       roadblock: true,
+      ramCooldown: 0,
     };
-    state.police2.roadblocks.push(car);
-    if (police) police.cars.push(car);
-    made.push(car);
+    p2.roadblocks.push(car);
+    if (state.police) state.police.cars.push(car);
   }
-  return made;
+  p2.roadblockCooldown = 5;
 }
 
-function clearRoadblocks(state) {
-  if (state.police2.roadblocks.length === 0) return;
-  const gone = new Set(state.police2.roadblocks);
-  if (state.police) {
-    state.police.cars = state.police.cars.filter((c) => !gone.has(c));
-  }
-  state.police2.roadblocks = [];
-}
-
-// One tick. Roadblocks appear at 3+ stars and vanish below 3; the
-// helicopter appears at 4-5 stars and is gone at 0 (and below 4).
 export function stepPolice2(state, dt) {
   const p2 = state.police2;
   const p = state.player;
   if (!p2 || !p) return;
-  const wanted = typeof state.wanted === 'number' ? state.wanted : 0;
-  p2.roadblockCooldown = Math.max(0, p2.roadblockCooldown - dt);
+  const wanted = state.wanted || 0;
+  if (p2.roadblockCooldown > 0) p2.roadblockCooldown -= dt;
 
+  // Roadblocks live only at 3+ stars.
   if (wanted >= 3) {
     if (p2.roadblocks.length === 0 && p2.roadblockCooldown <= 0) {
       spawnRoadblocks(state);
-      p2.roadblockCooldown = 6;
     }
-  } else {
-    clearRoadblocks(state);
+  } else if (p2.roadblocks.length > 0) {
+    removeRoadblocks(state);
   }
 
+  // The helicopter shows up at 4–5 stars and stays until the
+  // heat is fully gone.
   if (wanted >= 4) {
     if (!p2.heli) {
-      p2.heli = { x: p.x, y: p.y - 40, angle: 0, rotor: 0 };
+      p2.heli = { x: p.x, y: p.y - 200, angle: 0, rotor: 0 };
     }
-    // Hover above the player, drifting after them, rotor spinning.
-    p2.heli.x += clamp(p.x - p2.heli.x, -260 * dt, 260 * dt);
-    p2.heli.y += clamp(p.y - 30 - p2.heli.y, -260 * dt, 260 * dt);
-    p2.heli.rotor += dt * 28;
-    p2.heli.angle += dt * 0.4;
-  } else if (p2.heli) {
+  } else if (wanted === 0) {
     p2.heli = null;
+  }
+  if (p2.heli) {
+    const heli = p2.heli;
+    const k = clamp(dt * 1.8, 0, 1);
+    heli.x += (p.x - heli.x) * k;
+    heli.y += (p.y - 60 - heli.y) * k;
+    heli.angle += dt * 0.3;
+    heli.rotor += dt * 22;
   }
 }
 
-export default createPolice2;
+export function clearPolice2(state) {
+  if (!state.police2) return;
+  removeRoadblocks(state);
+  state.police2.heli = null;
+  state.police2.roadblockCooldown = 0;
+}
