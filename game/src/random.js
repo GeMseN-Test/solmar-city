@@ -1,22 +1,12 @@
-// random.js — seeded RNG for Solmar City.
-// Deterministic: same seed -> same sequence. City, traffic, boats and
-// side jobs all draw from one rng so a seed always rebuilds the same map.
-
-export function hashSeed(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return (value >>> 0) || 1;
-  }
-  const s = String(value ?? 'solmar');
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0) || 1;
-}
+// Solmar City — seeded random numbers. Every random choice in the
+// game (city layout, traffic, pickups, coins, gang spawns) comes from
+// one of these, so a seed always rebuilds the same city.
+//
+// mulberry32 is a small, fast, well-behaved PRNG: given the same seed
+// it always produces the same stream of numbers.
 
 export function mulberry32(seed) {
-  let a = hashSeed(seed);
+  let a = seed >>> 0;
   return function next() {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
@@ -26,35 +16,57 @@ export function mulberry32(seed) {
   };
 }
 
+// A little RNG that is BOTH callable and an object: call it as
+// rng() for a float in [0, 1), or use its methods — rng.next(),
+// rng.int(a, b), rng.range(a, b), rng.pick(list), rng.chance(p).
+// Callable on purpose: some modules treat the rng as a plain
+// function, others as an object with helpers; this satisfies both.
 export function createRng(seed) {
   const next = mulberry32(seed);
-  const rng = {
-    seed: hashSeed(seed),
-    next,
-    range(min, max) {
-      return min + next() * (max - min);
-    },
-    int(min, max) {
-      // Inclusive on both ends.
-      return Math.floor(min + next() * (max - min + 1));
-    },
-    pick(list) {
-      if (!list || list.length === 0) return undefined;
-      return list[Math.floor(next() * list.length)];
-    },
-    chance(p) {
-      return next() < p;
-    },
-    shuffle(list) {
-      const out = list.slice();
-      for (let i = out.length - 1; i > 0; i--) {
-        const j = Math.floor(next() * (i + 1));
-        const tmp = out[i];
-        out[i] = out[j];
-        out[j] = tmp;
-      }
-      return out;
-    },
+  function rng() {
+    return next();
+  }
+  rng.next = next;
+  rng.seed = seed >>> 0;
+  rng.int = function int(min, max) {
+    return min + Math.floor(next() * (max - min + 1));
+  };
+  rng.range = function range(min, max) {
+    return min + next() * (max - min);
+  };
+  rng.pick = function pick(list) {
+    return list[Math.floor(next() * list.length)];
+  };
+  rng.chance = function chance(p) {
+    return next() < p;
   };
   return rng;
+}
+
+// Standalone helpers for modules that keep their own rng function
+// instead of an object. rng is always the first argument.
+export function randRange(rng, min, max) {
+  const f = typeof rng === 'function' ? rng : rng.next;
+  return min + f() * (max - min);
+}
+
+export function randInt(rng, min, max) {
+  return min + Math.floor(randRange(rng, min, max + 1));
+}
+
+export function pick(rng, list) {
+  const f = typeof rng === 'function' ? rng : rng.next;
+  return list[Math.floor(f() * list.length)];
+}
+
+// Fisher-Yates shuffle, in place, driven by the seeded rng.
+export function shuffle(rng, list) {
+  const f = typeof rng === 'function' ? rng : rng.next;
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(f() * (i + 1));
+    const tmp = list[i];
+    list[i] = list[j];
+    list[j] = tmp;
+  }
+  return list;
 }

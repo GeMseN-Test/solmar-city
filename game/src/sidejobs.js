@@ -1,154 +1,170 @@
-// sidejobs.js — two side activities, always available:
-// - Taxi fares: while driving, a waving passenger appears at a roadside
-//   point; drive within 60px to pick up, deliver to a random landmark
-//   within 45s, payout $80-$150 by distance.
-// - Solmar Coins: 12 hidden gold coins at seeded street points; walk or
-//   drive over one to collect (+$25 each).
-
-import { clamp } from './util.js';
+// sidejobs.js — Two side activities, always available:
+//  - Solmar Coins: 12 hidden gold coins at seeded street points;
+//    walk or drive over one to collect (+$25 each). HUD: "Coins n/12".
+//  - Taxi fares: while driving, a waving passenger appears at a
+//    roadside point; drive within 60px to pick up, deliver to a random
+//    landmark within 45s, payout $80–$150 by distance.
 
 export const COIN_COUNT = 12;
-export const COIN_VALUE = 25;
+export const COIN_REWARD = 25;
+export const FARE_PICKUP_RANGE = 60;
+export const FARE_TIME_LIMIT = 45;
 export const FARE_MIN_PAY = 80;
 export const FARE_MAX_PAY = 150;
-export const FARE_PICKUP_RANGE = 60;
-export const FARE_DELIVER_RANGE = 70;
-export const FARE_TIME_LIMIT = 45;
+export const FARE_COOLDOWN = 14;
 
 export function createSideJobs(rng, city) {
+  const rand = rng || Math.random;
   const coins = [];
-  let guard = 0;
-  while (coins.length < COIN_COUNT && guard < 500) {
-    guard++;
-    const pt = city.randomStreetPoint(rng);
-    let ok = true;
-    for (const c of coins) {
-      if (Math.hypot(c.x - pt.x, c.y - pt.y) < 180) {
-        ok = false;
-        break;
-      }
+  for (let i = 0; i < COIN_COUNT; i++) {
+    let x = 200 + rand() * 2480;
+    let y = 200 + rand() * 1760;
+    if (city && city.randomStreetPoint) {
+      const pt = city.randomStreetPoint(rand);
+      x = pt.x;
+      y = pt.y;
     }
-    if (!ok) continue;
-    coins.push({ x: pt.x, y: pt.y, taken: false, bob: rng.range(0, Math.PI * 2) });
-  }
-  // If the spread rule starved us, fill the rest without it.
-  while (coins.length < COIN_COUNT) {
-    const pt = city.randomStreetPoint(rng);
-    coins.push({ x: pt.x, y: pt.y, taken: false, bob: rng.range(0, Math.PI * 2) });
+    coins.push({ x, y, taken: false, bob: rand() * Math.PI * 2 });
   }
   return {
     coins,
     coinsFound: 0,
     fare: null,
     fareTimer: 0,
-    fareCooldown: 8 + rng.range(0, 10),
+    fareCooldown: 6 + rand() * 6,
     faresDone: 0,
     faresEarned: 0,
-    rng,
   };
 }
 
 export function sideJobsText(state) {
+  if (!state || !state.sideJobs) return 'Coins 0/12  •  Fares $0';
   const sj = state.sideJobs;
-  if (!sj) return '';
-  return 'Coins ' + sj.coinsFound + '/' + sj.coins.length + '  •  Fares $' + sj.faresEarned;
+  return 'Coins ' + sj.coinsFound + '/12  •  Fares $' + sj.faresEarned;
 }
 
 export function fareMarker(state) {
-  const sj = state.sideJobs;
-  if (!sj || !sj.fare) return null;
-  const f = sj.fare;
-  if (f.stage === 'riding') {
-    return { x: f.destX, y: f.destY, r: 40, kind: 'fare', stage: 'riding' };
+  if (!state || !state.sideJobs || !state.sideJobs.fare) return null;
+  const fare = state.sideJobs.fare;
+  if (fare.stage === 'waiting') {
+    return { x: fare.x, y: fare.y, r: 40, kind: 'fare' };
   }
-  return { x: f.x, y: f.y, r: 40, kind: 'fare', stage: 'waiting' };
+  return { x: fare.destX, y: fare.destY, r: 40, kind: 'fare-dest' };
 }
 
-function spawnFare(state, rnd) {
-  const city = state.city;
-  const p = state.player;
-  const rng = state.sideJobs.rng;
-  let pick = city.randomStreetPoint(rng);
-  // Prefer a pickup a short drive away, not on top of the player.
-  for (let i = 0; i < 10; i++) {
-    const d = Math.hypot(pick.x - p.x, pick.y - p.y);
-    if (d > 200 && d < 900) break;
-    pick = city.randomStreetPoint(rng);
+function randomDestination(state, rng) {
+  const landmarks = state.city ? state.city.landmarks : null;
+  if (landmarks) {
+    const keys = Object.keys(landmarks);
+    const key = keys[Math.floor(rng() * keys.length)];
+    const lm = landmarks[key];
+    return { key, x: lm.x, y: lm.y, name: lm.name || key };
   }
-  // Any landmark except the island (no road there — it's in the sea).
-  const keys = Object.keys(city.landmarks).filter((k) => k !== 'island');
-  const destKey = keys[Math.floor(rnd() * keys.length)];
-  const dest = city.landmarks[destKey];
-  const d = Math.hypot(dest.x - pick.x, dest.y - pick.y);
-  const pay = clamp(Math.round(80 + d * 0.045), FARE_MIN_PAY, FARE_MAX_PAY);
-  return {
+  return { key: 'garage', x: 700, y: 830, name: "Ray's Garage" };
+}
+
+function spawnFare(state, rng) {
+  const sj = state.sideJobs;
+  const p = state.player;
+  if (!p) return;
+  let x = p.x + (rng() - 0.5) * 700;
+  let y = p.y + (rng() - 0.5) * 700;
+  if (state.city && state.city.randomStreetPoint) {
+    const pt = state.city.randomStreetPoint(rng);
+    x = pt.x;
+    y = pt.y;
+  }
+  const dest = randomDestination(state, rng);
+  const dist = Math.sqrt((dest.x - x) * (dest.x - x) + (dest.y - y) * (dest.y - y));
+  const pay = Math.round(
+    FARE_MIN_PAY + Math.min(1, dist / 2200) * (FARE_MAX_PAY - FARE_MIN_PAY)
+  );
+  sj.fare = {
     stage: 'waiting',
-    x: pick.x,
-    y: pick.y,
-    destKey,
+    x,
+    y,
+    destKey: dest.key,
     destX: dest.x,
     destY: dest.y,
     destName: dest.name,
     pay,
+    timeLeft: FARE_TIME_LIMIT,
   };
 }
 
 export function stepSideJobs(state, dt) {
+  if (!state || !state.sideJobs || !state.player) return;
   const sj = state.sideJobs;
-  if (!sj) return;
   const p = state.player;
-  const rng = sj.rng || null;
-  const rnd = () => (rng ? rng.next() : Math.random());
-
-  // Coins: walk or drive over one to collect it.
-  for (const coin of sj.coins) {
-    coin.bob += dt * 2;
+  const rng = state.rng || Math.random;
+  // Coins: walk or drive over one to collect.
+  for (let i = 0; i < sj.coins.length; i++) {
+    const coin = sj.coins[i];
     if (coin.taken) continue;
-    if (Math.hypot(p.x - coin.x, p.y - coin.y) < 30) {
+    coin.bob += dt * 3;
+    const dx = coin.x - p.x;
+    const dy = coin.y - p.y;
+    if (dx * dx + dy * dy < 28 * 28) {
       coin.taken = true;
-      sj.coinsFound += 1;
-      state.money = (state.money || 0) + COIN_VALUE;
+      sj.coinsFound++;
+      state.money = (state.money || 0) + COIN_REWARD;
+      if (state.events) state.events |= 4; // PICKUP
+      if (state.audio && state.audio.pickup) state.audio.pickup('coin');
     }
   }
-
-  // Taxi fares: only while driving.
+  // Taxi fares only make sense while driving.
+  const driving = !!(p.inCar || p.inBoat);
   if (!sj.fare) {
-    if (p.inCar) {
+    if (driving) {
       sj.fareCooldown -= dt;
       if (sj.fareCooldown <= 0) {
-        sj.fare = spawnFare(state, rnd);
+        spawnFare(state, rng);
+        sj.fareCooldown = FARE_COOLDOWN + rng() * 10;
       }
     }
     return;
   }
-
   const fare = sj.fare;
   if (fare.stage === 'waiting') {
-    if (p.inCar && Math.hypot(p.x - fare.x, p.y - fare.y) < FARE_PICKUP_RANGE) {
-      fare.stage = 'riding';
-      sj.fareTimer = FARE_TIME_LIMIT;
+    const dx = fare.x - p.x;
+    const dy = fare.y - p.y;
+    if (dx * dx + dy * dy < FARE_PICKUP_RANGE * FARE_PICKUP_RANGE) {
+      if (driving) {
+        fare.stage = 'riding';
+        fare.timeLeft = FARE_TIME_LIMIT;
+      }
+    }
+    // Passenger gives up if the player drives far away.
+    const far = Math.sqrt(dx * dx + dy * dy);
+    if (far > 900) {
+      sj.fare = null;
+      sj.fareCooldown = FARE_COOLDOWN;
     }
     return;
   }
-
-  // Riding: beat the clock to the destination.
-  sj.fareTimer -= dt;
-  if (!p.inCar) {
-    // The passenger bails when you leave the car.
-    sj.fare = null;
-    sj.fareCooldown = 15;
-    return;
-  }
-  if (Math.hypot(p.x - fare.destX, p.y - fare.destY) < FARE_DELIVER_RANGE) {
+  // Riding: deliver before the clock runs out.
+  fare.timeLeft -= dt;
+  const dx = fare.destX - p.x;
+  const dy = fare.destY - p.y;
+  if (dx * dx + dy * dy < 60 * 60) {
     state.money = (state.money || 0) + fare.pay;
-    sj.faresDone += 1;
+    sj.faresDone++;
     sj.faresEarned += fare.pay;
+    if (state.events) state.events |= 4;
+    if (state.audio && state.audio.pickup) state.audio.pickup('cash');
     sj.fare = null;
-    sj.fareCooldown = 20 + rnd() * 20;
+    sj.fareCooldown = FARE_COOLDOWN + rng() * 8;
     return;
   }
-  if (sj.fareTimer <= 0) {
+  if (fare.timeLeft <= 0) {
     sj.fare = null;
-    sj.fareCooldown = 15;
+    sj.fareCooldown = FARE_COOLDOWN;
   }
 }
+
+export function coinsRemaining(state) {
+  if (!state || !state.sideJobs) return COIN_COUNT;
+  return COIN_COUNT - state.sideJobs.coinsFound;
+}
+
+export default createSideJobs;

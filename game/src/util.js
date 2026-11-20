@@ -1,63 +1,82 @@
-// util.js — small math + formatting helpers shared by every module.
+// Solmar City — small math and formatting helpers shared by every
+// module. Nothing here knows about the game; it is pure arithmetic
+// and text so any module can use it without pulling in the world.
 
 export const TAU = Math.PI * 2;
 
-export function clamp(v, min, max) {
-  if (v < min) return min;
-  if (v > max) return max;
-  return v;
+// Keep v between lo and hi.
+export function clamp(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
-export function clamp01(v) {
-  return clamp(v, 0, 1);
-}
-
+// Slide from a to b by t (0 -> a, 1 -> b).
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-export function dist(x1, y1, x2, y2) {
-  return Math.hypot(x2 - x1, y2 - y1);
+// Straight-line distance between two points.
+export function dist(ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
-export function dist2(x1, y1, x2, y2) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
+// Squared distance — cheaper when only comparing which is nearer.
+export function dist2(ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
   return dx * dx + dy * dy;
 }
 
-export function wrapAngle(a) {
-  while (a > Math.PI) a -= TAU;
-  while (a < -Math.PI) a += TAU;
-  return a;
+// Angle from (ax, ay) to (bx, by), in radians.
+export function angleTo(ax, ay, bx, by) {
+  return Math.atan2(by - ay, bx - ax);
 }
 
+// Smallest signed turn from angle a to angle b, in (-PI, PI].
 export function angleDiff(a, b) {
-  // Shortest signed turn from a to b, in (-PI, PI].
-  return wrapAngle(b - a);
+  let d = (b - a) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d <= -Math.PI) d += TAU;
+  return d;
 }
 
-export function moveTowardsAngle(angle, target, maxStep) {
-  const d = angleDiff(angle, target);
-  if (Math.abs(d) <= maxStep) return target;
-  return wrapAngle(angle + Math.sign(d) * maxStep);
+// Wrap any angle into (-PI, PI].
+export function normalizeAngle(a) {
+  let r = a % TAU;
+  if (r > Math.PI) r -= TAU;
+  if (r <= -Math.PI) r += TAU;
+  return r;
 }
 
+// Turn current towards target by at most maxStep radians.
+export function turnTowards(current, target, maxStep) {
+  const d = angleDiff(current, target);
+  if (d > maxStep) return current + maxStep;
+  if (d < -maxStep) return current - maxStep;
+  return target;
+}
+
+// "$1,234" — money with thousands separators, no decimals.
 export function formatMoney(n) {
-  const v = Math.round(n || 0);
-  const sign = v < 0 ? '-' : '';
-  const digits = String(Math.abs(v)).split('');
-  const out = [];
-  while (digits.length > 3) {
-    out.unshift(digits.splice(-3).join(''));
-  }
-  out.unshift(digits.join(''));
-  return sign + out.join(',');
+  const v = Math.round(n);
+  return '$' + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+// "2:05" — seconds as minutes:seconds, for the play-time readout.
 export function formatTime(seconds) {
-  const total = Math.max(0, Math.floor(seconds || 0));
+  const total = Math.max(0, Math.floor(seconds));
   const m = Math.floor(total / 60);
   const s = total % 60;
   return m + ':' + String(s).padStart(2, '0');
+}
+
+// "6:00:00" — the Grand Prix countdown as hours:minutes:seconds.
+export function formatCountdown(seconds) {
+  const total = Math.max(0, Math.ceil(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h + ':' + pad(m) + ':' + pad(s);
 }
