@@ -1,25 +1,43 @@
-// Solmar City — tuning constants. One place for every magic number so
-// the world, the car, the player and the police all agree with each
-// other. Values are the probed v1 numbers (see the spec).
+// config.js — every tunable number for Solmar City in one place.
+// The world is 2880x2160. Roads form a grid (pitch 360, width 76) with
+// intersections at x = 180 + 360k and y = 180 + 360j. The sea strip is
+// everything below y = 2100; the beach runs from 2020 to 2100.
 
-// The city is 2880 wide, 2160 tall. The sea strip starts at y 2100;
-// the beach runs from y 2020 down to the water.
-export const WORLD_W = 2880;
-export const WORLD_H = 2160;
+export const WORLD_WIDTH = 2880;
+export const WORLD_HEIGHT = 2160;
+export const WORLD_W = WORLD_WIDTH;
+export const WORLD_H = WORLD_HEIGHT;
 export const SEA_TOP = 2100;
 export const BEACH_TOP = 2020;
-
-// Road grid: 8 vertical roads, 6 horizontal roads, 360px apart,
-// each 76px wide. Intersections are the traffic graph nodes.
 export const GRID_PITCH = 360;
+export const ROAD_WIDTH = 76;
 export const ROAD_X = [180, 540, 900, 1260, 1620, 1980, 2340, 2700];
 export const ROAD_Y = [180, 540, 900, 1260, 1620, 1980];
-export const ROAD_WIDTH = 76;
-export const ROAD_HALF = ROAD_WIDTH / 2;
-export const NODE_COUNT_X = ROAD_X.length;
-export const NODE_COUNT_Y = ROAD_Y.length;
+export const NODE_COUNT_X = 8;
+export const NODE_COUNT_Y = 6;
 
-// Driving: px/s, px/s^2, radians. A car is 46 long, 22 wide.
+// --- Player on foot -------------------------------------------------
+export const PLAYER = {
+  walkSpeed: 175,
+  runSpeed: 268,
+  radius: 11,
+  spawnX: 1420,
+  spawnY: 1230,
+  spawnAngle: -Math.PI / 2,
+  hpMax: 100,
+  gunDamage: 34,
+  gunRange: 520,
+  bulletSpeed: 760,
+  startAmmo: 48,
+  maxAmmo: 240,
+  punchDamage: 26,
+  punchRange: 36,
+  punchArc: 1.1,
+  gunCooldown: 0.22,
+  punchCooldown: 0.45,
+};
+
+// --- Driving --------------------------------------------------------
 export const CAR = {
   accel: 640,
   brake: 980,
@@ -34,24 +52,7 @@ export const CAR = {
   ramDamage: 18,
 };
 
-// On foot: walk 175 px/s, run 268 px/s. The gun reaches 520px.
-export const PLAYER = {
-  walkSpeed: 175,
-  runSpeed: 268,
-  radius: 11,
-  gunDamage: 34,
-  gunRange: 520,
-  bulletSpeed: 760,
-  startAmmo: 48,
-  maxAmmo: 240,
-  punchDamage: 26,
-  punchRange: 36,
-  punchArc: 1.1,
-};
-
-// Wanted stars: 0..5. Stealing a car, firing a shot or hitting a
-// pedestrian each add heat; stars decay after 12 quiet seconds, one
-// star every 8 seconds after that.
+// --- Wanted / police ------------------------------------------------
 export const WANTED = {
   max: 5,
   stealCar: 1,
@@ -64,37 +65,94 @@ export const WANTED = {
   bustSeconds: 1.6,
 };
 
-// Economy and population.
+// --- Economy / world population --------------------------------------
 export const MONEY_START = 50;
 export const TRAFFIC_CARS = 16;
 export const PEDESTRIANS = 34;
 export const PICKUPS = {
-  cash: { count: 14, amount: 60 },
-  health: { count: 8, amount: 40 },
-  ammo: { count: 8, amount: 36 },
+  cashCount: 14,
+  cashValue: 60,
+  healthCount: 8,
+  healthValue: 40,
+  ammoCount: 8,
+  ammoValue: 36,
 };
 
-// Save slot in localStorage.
+// --- Save ------------------------------------------------------------
 export const SAVE_KEY = 'solmar-city-save-v1';
 
-// The Grand Prix countdown shown in the HUD: 6 hours, in seconds.
-// It ticks down in world.step and wraps back to a full 6 hours.
-export const GRAND_PRIX_SECONDS = 21600;
-
-// Events bitmask returned by world.step each frame.
-export const EV = {
-  SHOT: 1,
-  PUNCH: 2,
-  PICKUP: 4,
-  CRASH: 8,
-  MISSION: 16,
-  DIED: 32,
-  BUSTED: 64,
-  ENEMY_SHOT: 128,
-  VAULT: 256,
-  STEAL: 512,
-  MISSION_COMPLETE: 1024,
+// --- Boats -----------------------------------------------------------
+export const BOAT = {
+  // Sea lane the boats are clamped to (strict bounds, see boats.js).
+  minX: 16,
+  maxX: 2864,
+  minY: 2116,
+  maxY: 2144,
+  boardRange: 70,
+  baseAccel: 260,
+  baseMaxSpeed: 300,
+  turnRate: 1.1,
 };
 
-// Where Mara Voss starts: outside the safehouse, facing north.
-export const SPAWN = { x: 1420, y: 1230, angle: -Math.PI / 2 };
+// --- Grand Prix ------------------------------------------------------
+// The big race event of Solmar City. The countdown ticks down in the
+// HUD (rendered by render.js from state.grandPrix); the race itself is
+// the fastest way to earn street cred — every lap past the Marina
+// grandstand pays out. startsIn is seconds until the green light.
+export const GRAND_PRIX = {
+  name: 'Solmar Grand Prix',
+  shortName: 'GRAND PRIX',
+  startsIn: 3600,
+  laps: 3,
+  lapReward: 500,
+  winReward: 2500,
+  // The circuit runs along the beach road and the harbor straight.
+  circuit: [
+    { x: 180, y: 1980 },
+    { x: 2700, y: 1980 },
+    { x: 2700, y: 2130 },
+    { x: 180, y: 2130 },
+  ],
+};
+
+// --- Radio -----------------------------------------------------------
+export const RADIO_STATION_COUNT = 5;
+
+// --- Side jobs -------------------------------------------------------
+export const SIDE_JOBS = {
+  coinCount: 12,
+  coinValue: 25,
+  fareMinPay: 80,
+  fareMaxPay: 150,
+  farePickupRange: 60,
+  fareTimeLimit: 45,
+  fareCooldown: 18,
+};
+
+// One object with everything, for callers that prefer a single import.
+export const CONFIG = {
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  SEA_TOP,
+  BEACH_TOP,
+  GRID_PITCH,
+  ROAD_WIDTH,
+  ROAD_X,
+  ROAD_Y,
+  NODE_COUNT_X,
+  NODE_COUNT_Y,
+  PLAYER,
+  CAR,
+  WANTED,
+  MONEY_START,
+  TRAFFIC_CARS,
+  PEDESTRIANS,
+  PICKUPS,
+  SAVE_KEY,
+  BOAT,
+  GRAND_PRIX,
+  RADIO_STATION_COUNT,
+  SIDE_JOBS,
+};
+
+export default CONFIG;

@@ -1,52 +1,37 @@
-// Solmar City — make.fun hand-in entrypoint (node22, no build step).
+// main.ts — package Solmar City for make.fun.
+// Run with: node main.ts
+// Copies game/ + screenshots/ into the output dir ($OUTPUT_DIR, or
+// /output when unset) and writes dossier.json there, built from
+// vendor/makefun-game.ts buildDossier(repoRoot, { text_max_bytes }).
 //
-// Copies the playable game (game/) and the screenshots (screenshots/)
-// into the output directory, then writes dossier.json from the kit's
-// buildDossier helper (vendor/makefun-game.ts).
-//
-// Module tally: 20 (v2: 15 v1 modules + radio, boats, missions2,
-// sidejobs, police2) + missions3 + missions4 in the attempt-3 pack,
-// for 12 story missions end to end. Rewritten from the spec in this
-// recording; line counts live in v2-retry-tally.md.
-//
-// Output dir: MAKEFUN_OUTPUT_DIR first (the kit's variable), then
-// OUTPUT_DIR, then /output when neither is set.
+// Modules in this build (20): random, util, config, city, save, audio,
+// combat, radio, boats, traffic, police, police2, sidejobs, missions,
+// missions2, missions3, missions4, world, render, shots, input, main,
+// plus the index page, serve.ts and this packager.
 
-import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = path.dirname(fileURLToPath(import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR
-  || process.env.OUTPUT_DIR
-  || '/output';
+const repoRoot = resolve(fileURLToPath(new URL('.', import.meta.url)));
+const outDir = process.env.OUTPUT_DIR || '/output';
 
-async function copyTree(src: string, dest: string): Promise<void> {
-  await mkdir(dest, { recursive: true });
-  const entries = await readdir(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const from = path.join(src, entry.name);
-    const to = path.join(dest, entry.name);
-    if (entry.isDirectory()) await copyTree(from, to);
-    else await copyFile(from, to);
-  }
+function copyIfPresent(src, dest) {
+  if (!existsSync(src)) return false;
+  cpSync(src, dest, { recursive: true });
+  return true;
 }
 
-async function main(): Promise<void> {
-  await mkdir(outDir, { recursive: true });
-  await copyTree(path.join(repoRoot, 'game'), path.join(outDir, 'game'));
-  const shotsDir = path.join(repoRoot, 'screenshots');
-  if (existsSync(shotsDir)) {
-    await copyTree(shotsDir, path.join(outDir, 'screenshots'));
-  }
-  const dossier = buildDossier(repoRoot, { text_max_bytes: 163840 });
-  const bytes = dossier instanceof Uint8Array
-    ? dossier
-    : Buffer.from(typeof dossier === 'string' ? dossier : JSON.stringify(dossier));
-  await writeFile(path.join(outDir, 'dossier.json'), bytes);
-  console.log(`Solmar City dossier written to ${outDir}`);
-}
+mkdirSync(outDir, { recursive: true });
+copyIfPresent(join(repoRoot, 'game'), join(outDir, 'game'));
+copyIfPresent(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'));
+// Ship the README + LICENSE alongside the game so the entry is
+// self-describing even when the dossier is read on its own.
+copyIfPresent(join(repoRoot, 'README.md'), join(outDir, 'README.md'));
+copyIfPresent(join(repoRoot, 'LICENSE'), join(outDir, 'LICENSE'));
 
-await main();
+const dossier = buildDossier(repoRoot, { text_max_bytes: 163840 });
+const bytes = typeof dossier === 'string' ? dossier : Buffer.from(dossier);
+writeFileSync(join(outDir, 'dossier.json'), bytes);
+console.log(`wrote ${join(outDir, 'dossier.json')} (${bytes.length} bytes)`);

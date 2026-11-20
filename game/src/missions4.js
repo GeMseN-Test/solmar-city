@@ -1,50 +1,45 @@
-// Solmar City — attempt-3 story missions, M11–M12. Appended to the
-// shared MISSIONS list by registerMissions4() (idempotent; world.js
-// calls it after registerMissions3). Only proven objective kinds:
-// reach / defeat / board / interact / escape.
-//
-// M11 'Midnight Run' ($3,000): reach the docks, take down 4 Harbor
-// Rats, reach the Marina, board a boat, reach Gull Island.
-// M12 'The Solmar Crown' ($10,000): reach the bank, grab the vault
-// (4 stars), defeat 6 guards, escape to the Safehouse, reach Ray's
-// Garage. The story ends here — storyComplete turns true after M12.
+// Solmar City — story missions M11–M12 (attempt 3).
+// Written from v2-spec.md only. Appended to MISSIONS by
+// registerMissions4(); calling it twice changes nothing.
+// M12 is the last mission: finishing it sets storyComplete.
+import { MISSIONS } from './missions.js';
 
-import { registerMissions } from './missions.js';
-
-const ATTEMPT3_MISSIONS = [
+const EXTRA = [
   {
-    id: 'midnight-run',
+    id: 'M11',
     title: 'Midnight Run',
-    briefing: 'A midnight run across the harbor: clear the docks, grab a boat at the Marina, and vanish to Gull Island.',
+    briefing: 'Midnight at the Docks: the Harbor Rats are back. Settle it, then run the boat out to Gull Island.',
     reward: 3000,
     objectives: [
       { kind: 'reach', key: 'docks', text: 'Reach Solmar Docks' },
-      { kind: 'defeat', count: 4, text: 'Take down 4 Harbor Rats' },
+      { kind: 'defeat', count: 4, text: 'Defeat 4 Harbor Rats' },
       { kind: 'reach', key: 'marina', text: 'Reach Solmar Marina' },
       { kind: 'board', text: 'Board a boat' },
-      { kind: 'reach', key: 'island', text: 'Reach Gull Island' },
+      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
     ],
   },
   {
-    id: 'solmar-crown',
+    id: 'M12',
     title: 'The Solmar Crown',
-    briefing: 'The crown job: the bank vault, six guards, and a getaway to the garage. Finish this and Solmar is yours.',
+    briefing: 'The Bank vault. Six guards. One clean getaway to the Garage. Take the Crown.',
     reward: 10000,
     objectives: [
       { kind: 'reach', key: 'bank', text: 'Reach Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (4 stars)' },
       { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to the Safehouse' },
-      { kind: 'reach', key: 'garage', text: "Reach Ray's Garage" },
+      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\u2019s Safehouse' },
+      { kind: 'reach', key: 'garage', text: 'Drive home to Ray\u2019s Garage' },
     ],
   },
 ];
 
 let registered = false;
 
-// Append M11–M12 to MISSIONS. Safe to call more than once.
+// Append M11–M12 to MISSIONS. Idempotent: a second call is a no-op.
 export function registerMissions4() {
   if (registered) return;
   registered = true;
-  registerMissions(ATTEMPT3_MISSIONS);
+  for (const m of EXTRA) {
+    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
+  }
 }

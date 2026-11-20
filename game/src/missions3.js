@@ -1,50 +1,44 @@
-// Solmar City — v2-retry story missions, M9–M10. Appended to the
-// shared MISSIONS list by registerMissions3() (idempotent; world.js
-// calls it after registerStoryMissions). Only proven objective kinds
-// are used: reach / defeat / board / interact / escape.
-//
-// M9 'Night Shift at the Docks' ($1,500): reach the docks, take down
-// 4 Harbor Rats who spawn there, board a boat, reach Gull Island,
-// come back to the Marina.
-// M10 'King of Solmar' ($7,500): reach the turf, defeat 6 Vipers,
-// reach the bank, grab the vault (4 stars), escape to the Safehouse.
+// Solmar City — story missions M9–M10 (v2 retry).
+// Written from v2-spec.md only. Appended to MISSIONS by
+// registerMissions3(); calling it twice changes nothing.
+import { MISSIONS } from './missions.js';
 
-import { registerMissions } from './missions.js';
-
-const V2_RETRY_MISSIONS = [
+const EXTRA = [
   {
-    id: 'night-shift',
+    id: 'M9',
     title: 'Night Shift at the Docks',
-    briefing: 'The Harbor Rats own the docks after dark. Clear four of them, take a boat to Gull Island, and sail home.',
+    briefing: 'The Harbor Rats run the Docks after dark. Clear them out, take a boat to Gull Island, and come home by the Marina.',
     reward: 1500,
     objectives: [
       { kind: 'reach', key: 'docks', text: 'Reach Solmar Docks' },
-      { kind: 'defeat', count: 4, text: 'Take down 4 Harbor Rats' },
+      { kind: 'defeat', count: 4, text: 'Defeat 4 Harbor Rats' },
       { kind: 'board', text: 'Board a boat' },
-      { kind: 'reach', key: 'island', text: 'Reach Gull Island' },
-      { kind: 'reach', key: 'marina', text: 'Return to the Marina' },
+      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Return to Solmar Marina' },
     ],
   },
   {
-    id: 'king-of-solmar',
+    id: 'M10',
     title: 'King of Solmar',
-    briefing: 'Six Vipers on the turf, then the bank vault. Pull this off and the city is yours.',
+    briefing: 'Own the turf, rob the Bank, and walk away clean. That is how you become King of Solmar.',
     reward: 7500,
     objectives: [
-      { kind: 'reach', key: 'turf', text: "Reach Vipers' Turf" },
-      { kind: 'defeat', count: 6, text: 'Take down 6 Vipers' },
+      { kind: 'reach', key: 'turf', text: 'Reach Vipers\u2019 Turf' },
+      { kind: 'defeat', count: 6, text: 'Defeat 6 Vipers' },
       { kind: 'reach', key: 'bank', text: 'Reach Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to the Safehouse' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (4 stars)' },
+      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\u2019s Safehouse' },
     ],
   },
 ];
 
 let registered = false;
 
-// Append M9–M10 to MISSIONS. Safe to call more than once.
+// Append M9–M10 to MISSIONS. Idempotent: a second call is a no-op.
 export function registerMissions3() {
   if (registered) return;
   registered = true;
-  registerMissions(V2_RETRY_MISSIONS);
+  for (const m of EXTRA) {
+    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
+  }
 }

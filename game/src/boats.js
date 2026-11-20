@@ -1,154 +1,173 @@
-// boats.js — Drivable boats in the harbor water (sea strip y > 2100).
-// E boards a nearby boat on foot; E again steps ashore on the beach.
-// Boat physics: slower accel than cars, wide turns, wake particles,
-// clamped to the sea (x 16..2864, y 2116..2144).
+// boats.js — drivable boats in the Solmar harbor.
+// Six boats moored in the sea strip (y > 2100). Walk up to one on the
+// beach and press E to board; press E again to step ashore. Boats are
+// slower to accelerate than cars and turn wide; each hull has its own
+// top speed (the yellow jetski is the fastest thing on the water).
+// Player state: player.inBoat, player.boat.
 
-export const SEA_MIN_X = 16;
-export const SEA_MAX_X = 2864;
-export const SEA_MIN_Y = 2116;
-export const SEA_MAX_Y = 2144;
-export const BOARD_RANGE = 70;
+import { BOAT, WORLD_WIDTH } from './config.js';
+import { clamp, turnToward } from './util.js';
 
+// The six moorings. topSpeed is a multiplier on the base boat speed.
 const MOORINGS = [
-  { x: 2440, y: 2132, color: '#f2f2f2', label: 'Marina Cruiser', speedMul: 1.0, kind: 'boat' },
-  { x: 2560, y: 2142, color: '#ff8c1a', label: 'Sunset Runabout', speedMul: 1.0, kind: 'boat' },
-  { x: 2660, y: 2126, color: '#2e7de8', label: 'Harbor Skiff', speedMul: 1.0, kind: 'boat' },
-  { x: 1500, y: 2135, color: '#e8352c', label: 'Scarlet Speedboat', speedMul: 1.45, kind: 'speedboat' },
-  { x: 700, y: 2130, color: '#ffffff', label: 'Grand Yacht', speedMul: 0.85, kind: 'yacht' },
-  { x: 1100, y: 2138, color: '#ffd21a', label: 'Jet Ski', speedMul: 1.6, kind: 'jetski' },
+  { name: 'Harbor Skiff', color: '#f2f2ee', x: 2440, y: 2132, angle: 0, topSpeed: 1.0 },
+  { name: 'Sunset Runner', color: '#e88030', x: 2560, y: 2142, angle: 0, topSpeed: 1.0 },
+  { name: 'Bluefin', color: '#2f6fd0', x: 2660, y: 2126, angle: 0, topSpeed: 1.0 },
+  { name: 'Scarlet Speedboat', color: '#d0342c', x: 1500, y: 2135, angle: 0, topSpeed: 1.45 },
+  { name: 'Grand Yacht', color: '#f5f2e8', x: 700, y: 2130, angle: 0, topSpeed: 0.85 },
+  { name: 'Yellow Jetski', color: '#f2d32c', x: 1100, y: 2138, angle: 0, topSpeed: 1.6 },
 ];
 
-export function isSailable(x, y) {
-  return x > SEA_MIN_X && x < SEA_MAX_X && y > SEA_MIN_Y && y < SEA_MAX_Y;
-}
+export const BOARD_RANGE = BOAT.boardRange || 70;
 
 export function createBoats(rng) {
-  const boats = [];
-  for (let i = 0; i < MOORINGS.length; i++) {
-    const m = MOORINGS[i];
-    const jitter = rng ? (rng() - 0.5) * 8 : 0;
-    boats.push({
-      kind: m.kind,
-      x: m.x + jitter,
-      y: m.y,
-      angle: -Math.PI / 2 + (rng ? (rng() - 0.5) * 0.2 : 0),
-      speed: 0,
-      color: m.color,
-      label: m.label,
-      speedMul: m.speedMul,
-      inUse: false,
-      wake: [],
-    });
-  }
-  return boats;
+  // rng is accepted for API compatibility; moorings are fixed so the
+  // harbor always looks the same. (rng unused on purpose.)
+  void rng;
+  return MOORINGS.map((m) => ({
+    kind: 'boat',
+    name: m.name,
+    color: m.color,
+    x: m.x,
+    y: m.y,
+    angle: m.angle,
+    speed: 0,
+    topSpeed: m.topSpeed,
+    inUse: false,
+  }));
 }
 
+// Strict sea-lane bounds: x in (16, 2864), y in (2116, 2144).
+export function isSailable(x, y) {
+  return x > BOAT.minX && x < BOAT.maxX && y > BOAT.minY && y < BOAT.maxY;
+}
+
+export function isInSeaLane(x, y) {
+  return isSailable(x, y);
+}
+
+// Nearest free boat within boarding range of (x, y). When x/y are
+// omitted the player's position is used. Returns null when none.
 export function nearestBoat(state, x, y) {
-  if (!state || !state.boats) return null;
+  const boats = state.boats || [];
+  const px = x != null ? x : (state.player ? state.player.x : 0);
+  const py = y != null ? y : (state.player ? state.player.y : 0);
   let best = null;
-  let bestD = BOARD_RANGE;
-  for (let i = 0; i < state.boats.length; i++) {
-    const b = state.boats[i];
+  let bestD = Infinity;
+  for (const b of boats) {
     if (b.inUse) continue;
-    const dx = b.x - x;
-    const dy = b.y - y;
+    const dx = b.x - px;
+    const dy = b.y - py;
     const d = Math.sqrt(dx * dx + dy * dy);
     if (d < bestD) {
       bestD = d;
       best = b;
     }
   }
-  return best;
+  if (best && bestD <= BOARD_RANGE) return best;
+  return null;
 }
 
+// Put the player onto the boat: position snaps to the hull, the boat
+// becomes in-use, and the player is flagged as boating.
 export function boardBoat(state, boat) {
-  if (!state || !boat) return false;
+  if (!state || !state.player || !boat) return false;
   const p = state.player;
-  if (!p || p.inBoat || p.inCar) return false;
   p.x = boat.x;
   p.y = boat.y;
   p.angle = boat.angle;
   p.inBoat = true;
   p.boat = boat;
+  p.inCar = false;
+  p.car = null;
   boat.inUse = true;
   boat.speed = 0;
   return true;
 }
 
+// Step ashore: 50px north of the boat, onto the beach.
 export function exitBoat(state) {
-  if (!state || !state.player || !state.player.inBoat) return false;
+  if (!state || !state.player) return false;
   const p = state.player;
   const boat = p.boat;
-  if (boat) {
-    boat.inUse = false;
-    boat.speed = 0;
-  }
-  // Step ashore 50px north of the boat, onto the beach.
-  p.x = boat ? boat.x : p.x;
-  p.y = (boat ? boat.y : p.y) - 50;
-  if (p.y < 2020) p.y = 2020;
+  if (!p.inBoat || !boat) return false;
+  p.x = clamp(boat.x, 40, WORLD_WIDTH - 40);
+  p.y = boat.y - 50;
   p.inBoat = false;
   p.boat = null;
-  p.angle = -Math.PI / 2;
+  boat.inUse = false;
+  boat.speed = 0;
   return true;
 }
 
-const BOAT_ACCEL = 260;
-const BOAT_BRAKE = 420;
-const BOAT_MAX_SPEED = 340;
-const BOAT_REVERSE = 120;
-const BOAT_TURN = 1.9;
-const BOAT_DRAG = 0.4;
-
+// Boat physics, one frame. input: { steer, throttle, handbrake }.
+// Slow acceleration, wide turns, wake particles behind the hull,
+// clamped hard to the sea lane so a boat can never beach itself.
 export function stepBoating(state, input, dt) {
-  if (!state || !state.player || !state.player.inBoat) return;
   const p = state.player;
+  if (!p || !p.inBoat || !p.boat) return;
   const boat = p.boat;
-  if (!boat) return;
-  const mul = boat.speedMul || 1;
-  const maxSpeed = BOAT_MAX_SPEED * mul;
-  const steer = (input && typeof input.steer === 'number') ? input.steer : 0;
-  const throttle = (input && typeof input.throttle === 'number') ? input.throttle : 0;
-  const handbrake = !!(input && input.handbrake);
-  let speed = boat.speed || 0;
-  if (throttle > 0) speed += BOAT_ACCEL * mul * throttle * dt;
-  else if (throttle < 0) speed -= BOAT_BRAKE * -throttle * dt;
-  else speed -= Math.sign(speed) * BOAT_DRAG * 120 * dt;
-  if (handbrake) speed -= Math.sign(speed) * 500 * dt;
-  if (speed > maxSpeed) speed = maxSpeed;
-  if (speed < -BOAT_REVERSE) speed = -BOAT_REVERSE;
-  if (Math.abs(speed) < 4 && throttle === 0) speed = 0;
-  // Wide turns: turn rate scales with speed, weaker than cars.
-  const turnAmount = BOAT_TURN * steer * Math.min(1, Math.abs(speed) / 120) * dt;
-  boat.angle += turnAmount * Math.sign(speed || 1);
-  p.angle = boat.angle;
-  const nx = boat.x + Math.cos(boat.angle) * speed * dt;
-  const ny = boat.y + Math.sin(boat.angle) * speed * dt;
-  boat.x = Math.min(SEA_MAX_X, Math.max(SEA_MIN_X, nx));
-  boat.y = Math.min(SEA_MAX_Y, Math.max(SEA_MIN_Y, ny));
-  boat.speed = speed;
+  const step = dt || 0.016;
+  const maxSpeed = BOAT.baseMaxSpeed * (boat.topSpeed || 1);
+  const throttle = input ? (input.throttle || 0) : 0;
+  const steer = input ? (input.steer || 0) : 0;
+
+  // Gentle acceleration; reverse is even slower on water.
+  if (throttle > 0) {
+    boat.speed += BOAT.baseAccel * throttle * step;
+  } else if (throttle < 0) {
+    boat.speed += BOAT.baseAccel * 0.45 * throttle * step;
+  } else {
+    // Water drag bleeds speed when nobody is on the throttle.
+    boat.speed -= boat.speed * 0.55 * step;
+  }
+  if (input && input.handbrake) {
+    boat.speed -= boat.speed * 2.2 * step;
+  }
+  boat.speed = clamp(boat.speed, -maxSpeed * 0.35, maxSpeed);
+
+  // Wide turns: the faster the boat, the lazier the rudder.
+  const speedFactor = clamp(Math.abs(boat.speed) / maxSpeed, 0, 1);
+  const turn = steer * BOAT.turnRate * 0.45 * (0.35 + 0.65 * speedFactor) * step;
+  boat.angle += turn * Math.sign(boat.speed || 1);
+
+  boat.x += Math.cos(boat.angle) * boat.speed * step;
+  boat.y += Math.sin(boat.angle) * boat.speed * step;
+
+  // Clamp to the sea lane; bump gently off the edges.
+  if (boat.x <= BOAT.minX + 2) { boat.x = BOAT.minX + 2; boat.speed *= 0.6; }
+  if (boat.x >= BOAT.maxX - 2) { boat.x = BOAT.maxX - 2; boat.speed *= 0.6; }
+  if (boat.y <= BOAT.minY + 2) { boat.y = BOAT.minY + 2; boat.speed *= 0.6; }
+  if (boat.y >= BOAT.maxY - 2) { boat.y = BOAT.maxY - 2; boat.speed *= 0.6; }
+
+  // The player rides the hull.
   p.x = boat.x;
   p.y = boat.y;
-  // Wake particles behind the boat when moving.
-  if (!boat.wake) boat.wake = [];
-  if (Math.abs(speed) > 40) {
-    boat.wake.push({
-      x: boat.x - Math.cos(boat.angle) * 26,
-      y: boat.y - Math.sin(boat.angle) * 26,
-      life: 0.9,
-      maxLife: 0.9,
+  p.angle = boat.angle;
+
+  // Wake: white spray particles behind the boat while it moves.
+  if (Math.abs(boat.speed) > 40) {
+    if (!state.particles) state.particles = [];
+    const backX = boat.x - Math.cos(boat.angle) * 24;
+    const backY = boat.y - Math.sin(boat.angle) * 24;
+    state.particles.push({
+      kind: 'wake',
+      x: backX + (Math.random() - 0.5) * 18,
+      y: backY + (Math.random() - 0.5) * 10,
+      life: 0.7,
+      maxLife: 0.7,
+      size: 5 + Math.random() * 6,
     });
+    if (state.particles.length > 400) state.particles.splice(0, state.particles.length - 400);
   }
-  for (let i = boat.wake.length - 1; i >= 0; i--) {
-    boat.wake[i].life -= dt;
-    if (boat.wake[i].life <= 0) boat.wake.splice(i, 1);
-  }
-  if (boat.wake.length > 40) boat.wake.splice(0, boat.wake.length - 40);
+  void turnToward;
 }
 
-export function boatSpeed(state) {
-  if (!state || !state.player || !state.player.boat) return 0;
-  return Math.abs(state.player.boat.speed || 0);
-}
-
-export default createBoats;
+export default {
+  createBoats,
+  nearestBoat,
+  boardBoat,
+  exitBoat,
+  stepBoating,
+  isSailable,
+};

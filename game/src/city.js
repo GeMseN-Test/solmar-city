@@ -1,214 +1,160 @@
-// Solmar City — the city itself. buildCity(rng) lays out one fixed
-// grid (8 vertical roads, 6 horizontal, 360px apart) and fills the
-// blocks between them with 62 buildings and 3 parks, all from the
-// seeded rng, so a seed always rebuilds the same streets.
-//
-// The city answers the questions the rest of the game asks: is this
-// point on a road, inside a building, or in the sea? Where is the
-// nearest road, the nearest intersection, a random street corner?
-// And it can push a circle (player, car) out of a building wall.
+// city.js — Solmar City layout: roads, blocks, buildings, parks and
+// the eight named landmarks. Built once per world from a seeded RNG so
+// the same seed always grows the same city. The map is 2880x2160 with
+// a road grid (pitch 360, width 76) and a sea strip below y = 2100.
 
 import {
-  WORLD_W, WORLD_H, SEA_TOP, ROAD_X, ROAD_Y, ROAD_HALF,
-  NODE_COUNT_X, NODE_COUNT_Y,
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  SEA_TOP,
+  BEACH_TOP,
+  GRID_PITCH,
+  ROAD_WIDTH,
+  ROAD_X,
+  ROAD_Y,
+  NODE_COUNT_X,
+  NODE_COUNT_Y,
 } from './config.js';
 import { clamp, dist } from './util.js';
-import { shuffle } from './random.js';
 
-// The eight places every mission talks about. Fixed coordinates so
-// the HUD arrow, the minimap and the mission text all agree.
-export const LANDMARKS = {
-  garage: { x: 700, y: 830, name: "Ray's Garage" },
-  safehouse: { x: 1420, y: 1190, name: "Mara's Safehouse" },
-  bank: { x: 1800, y: 1190, name: 'Grand Solmar Bank' },
-  turf: { x: 700, y: 1790, name: "Vipers' Turf" },
-  docks: { x: 360, y: 130, name: 'Solmar Docks' },
-  marina: { x: 2520, y: 1930, name: 'Solmar Marina' },
-  radio: { x: 2520, y: 130, name: 'Solmar Radio' },
-  island: { x: 1440, y: 2130, name: 'Gull Island' },
-};
-
-const BUILDING_COLORS = [
-  '#3a3f4a', '#464b58', '#33363f', '#4a4038', '#3d4450',
-  '#413a4d', '#37424a', '#4d4436', '#39424e', '#453d33',
+// The eight named places every mission, fare and HUD marker refers to.
+export const LANDMARK_DEFS = [
+  { key: 'garage', name: "Ray's Garage", short: 'Garage', x: 700, y: 830 },
+  { key: 'safehouse', name: "Mara's Safehouse", short: 'Safehouse', x: 1420, y: 1190 },
+  { key: 'bank', name: 'Grand Solmar Bank', short: 'Bank', x: 1800, y: 1190 },
+  { key: 'turf', name: "Vipers' Turf", short: 'Turf', x: 700, y: 1790 },
+  { key: 'docks', name: 'Solmar Docks', short: 'Docks', x: 360, y: 130 },
+  { key: 'marina', name: 'Solmar Marina', short: 'Marina', x: 2520, y: 1930 },
+  { key: 'radio', name: 'Solmar Radio', short: 'Radio', x: 2520, y: 130 },
+  { key: 'island', name: 'Gull Island', short: 'Island', x: 1440, y: 2130 },
 ];
 
-// Does rect r cover landmark point p (with a little margin)?
-function coversLandmark(r, margin) {
-  for (const key of Object.keys(LANDMARKS)) {
-    const p = LANDMARKS[key];
-    if (p.x > r.x - margin && p.x < r.x + r.w + margin
-      && p.y > r.y - margin && p.y < r.y + r.h + margin) {
-      return true;
-    }
+const PALETTE = [
+  '#3d4a63', '#4a3a5e', '#5e463a', '#2f4a3d', '#5a4a2f',
+  '#414e6b', '#6b4141', '#3a5a6b', '#555a6e', '#6e5a41',
+];
+
+// True when (x, y) sits on a road (within half the road width of a
+// road centre line), and not in the sea strip.
+export function isRoadPoint(x, y) {
+  if (y >= BEACH_TOP) return false;
+  const half = ROAD_WIDTH / 2;
+  for (const rx of ROAD_X) {
+    if (Math.abs(x - rx) <= half) return true;
+  }
+  for (const ry of ROAD_Y) {
+    if (Math.abs(y - ry) <= half) return true;
   }
   return false;
 }
 
-function rectsOverlap(a, b) {
-  return a.x < b.x + b.w && a.x + a.w > b.x
-    && a.y < b.y + b.h && a.y + a.h > b.y;
+// True when (x, y) is in the sea (the harbor strip at the bottom).
+export function isInSeaPoint(x, y) {
+  return y > SEA_TOP;
 }
 
 export function buildCity(rng) {
-  // Blocks are the rectangles between neighbouring roads:
-  // 7 columns x 5 rows = 35 blocks.
-  const blocks = [];
-  for (let bx = 0; bx < NODE_COUNT_X - 1; bx++) {
-    for (let by = 0; by < NODE_COUNT_Y - 1; by++) {
-      blocks.push({
-        x0: ROAD_X[bx] + ROAD_HALF + 10,
-        y0: ROAD_Y[by] + ROAD_HALF + 10,
-        x1: ROAD_X[bx + 1] - ROAD_HALF - 10,
-        y1: ROAD_Y[by + 1] - ROAD_HALF - 10,
-      });
-    }
+  const rand = rng || { next: Math.random, range: (a, b) => a + Math.random() * (b - a), int: (a, b) => Math.floor(a + Math.random() * (b - a + 1)), pick: (l) => l[Math.floor(Math.random() * l.length)] };
+
+  // Landmarks as a keyed object: city.landmarks.garage.x, etc.
+  const landmarks = {};
+  for (const def of LANDMARK_DEFS) {
+    landmarks[def.key] = { key: def.key, name: def.name, short: def.short, x: def.x, y: def.y };
   }
 
-  // Three blocks become parks (open ground, no buildings).
-  const order = shuffle(rng, blocks.map((b, i) => i));
-  const parkIdx = new Set(order.slice(0, 3));
-  const parks = order.slice(0, 3).map((i) => {
-    const b = blocks[i];
-    return { x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 };
-  });
+  // Three parks: green squares carved out of ordinary blocks.
+  const parks = [
+    { x: 900, y: 540, w: 200, h: 160, name: 'Palm Park' },
+    { x: 1980, y: 1260, w: 220, h: 170, name: 'Harbor Green' },
+    { x: 1260, y: 1620, w: 190, h: 150, name: 'Sunset Square' },
+  ];
 
-  // 62 buildings: 30 street blocks get 2 each, 2 get 1 each.
-  // (35 blocks - 3 parks = 32 buildable blocks; 30*2 + 2*1 = 62.)
-  const buildable = order.slice(3);
+  // Buildings fill the blocks between roads. A block spans from one
+  // road edge to the next; each block holds one or two buildings with
+  // a margin so streets stay walkable. Exactly 62 buildings.
   const buildings = [];
-  buildable.forEach((bi, n) => {
-    const b = blocks[bi];
-    const count = n < 30 ? 2 : 1;
-    if (count === 1) {
-      const w = 70 + rng.range(0, 90);
-      const h = 70 + rng.range(0, 90);
-      const r = placeInBlock(rng, b, w, h, buildings);
-      if (r) buildings.push(r);
-      return;
-    }
-    // Two buildings: split the block in half so they never overlap.
-    const vertical = rng.next() < 0.5;
-    const halves = vertical
-      ? [
-        { x0: b.x0, y0: b.y0, x1: (b.x0 + b.x1) / 2 - 6, y1: b.y1 },
-        { x0: (b.x0 + b.x1) / 2 + 6, y0: b.y0, x1: b.x1, y1: b.y1 },
-      ]
-      : [
-        { x0: b.x0, y0: b.y0, x1: b.x1, y1: (b.y0 + b.y1) / 2 - 6 },
-        { x0: b.x0, y0: (b.y0 + b.y1) / 2 + 6, x1: b.x1, y1: b.y1 },
-      ];
-    for (const half of halves) {
-      const w = 60 + rng.range(0, Math.max(10, half.x1 - half.x0 - 70));
-      const h = 60 + rng.range(0, Math.max(10, half.y1 - half.y0 - 70));
-      const r = placeInBlock(rng, half, w, h, buildings);
-      if (r) buildings.push(r);
-    }
-  });
-
-  // Guarantee the count: if a placement was refused (landmark in the
-  // way), top up with small buildings tucked into free corners.
-  let guard = 0;
-  while (buildings.length < 62 && guard < 200) {
-    guard++;
-    const b = blocks[buildable[guard % buildable.length]];
-    const w = 60 + rng.range(0, 60);
-    const h = 60 + rng.range(0, 60);
-    const r = placeInBlock(rng, b, w, h, buildings, 2);
-    if (r) buildings.push(r);
-  }
-  buildings.length = Math.min(buildings.length, 62);
-
-  return {
-    buildings,
-    parks,
-    landmarks: LANDMARKS,
-    nodeCountX: NODE_COUNT_X,
-    nodeCountY: NODE_COUNT_Y,
-    isRoad,
-    pointInBuilding,
-    nearestRoadPoint,
-    nearestNode,
-    nodePoint,
-    nodeNeighbours,
-    randomStreetPoint,
-    resolveCircle,
-    isInSea,
-  };
-
-  // Try a few random spots inside block b for a w x h building that
-  // avoids landmarks and other buildings. Returns the rect or null.
-  function placeInBlock(r, block, w, h, others, tries) {
-    const attempts = tries || 8;
-    for (let t = 0; t < attempts; t++) {
-      const maxX = Math.max(block.x0, block.x1 - w);
-      const maxY = Math.max(block.y0, block.y1 - h);
-      const rect = {
-        x: block.x0 + r.range(0, Math.max(0, maxX - block.x0)),
-        y: block.y0 + r.range(0, Math.max(0, maxY - block.y0)),
-        w: Math.min(w, block.x1 - block.x0),
-        h: Math.min(h, block.y1 - block.y0),
-        color: r.pick(BUILDING_COLORS),
-      };
-      if (coversLandmark(rect, 30)) continue;
-      if (others.some((o) => rectsOverlap(rect, o))) continue;
-      return rect;
-    }
-    return null;
-  }
-
-  // True when (x, y) sits on a road (within half the road width of a
-  // road line, inside the grid's span).
-  function isRoad(x, y) {
-    for (const rx of ROAD_X) {
-      if (Math.abs(x - rx) <= ROAD_HALF && y >= ROAD_Y[0] - ROAD_HALF
-        && y <= ROAD_Y[ROAD_Y.length - 1] + ROAD_HALF) return true;
-    }
-    for (const ry of ROAD_Y) {
-      if (Math.abs(y - ry) <= ROAD_HALF && x >= ROAD_X[0] - ROAD_HALF
-        && x <= ROAD_X[ROAD_X.length - 1] + ROAD_HALF) return true;
-    }
-    return false;
-  }
-
-  function pointInBuilding(x, y) {
-    for (const b of buildings) {
-      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
-        return b;
+  const halfRoad = ROAD_WIDTH / 2;
+  const margin = 26;
+  let colorIdx = 0;
+  for (let bx = 0; bx < NODE_COUNT_X - 1 && buildings.length < 62; bx++) {
+    for (let by = 0; by < NODE_COUNT_Y - 1 && buildings.length < 62; by++) {
+      const blockX0 = ROAD_X[bx] + halfRoad + margin;
+      const blockX1 = ROAD_X[bx + 1] - halfRoad - margin;
+      const blockY0 = ROAD_Y[by] + halfRoad + margin;
+      const blockY1 = ROAD_Y[by + 1] - halfRoad - margin;
+      const bw = blockX1 - blockX0;
+      const bh = blockY1 - blockY0;
+      if (bw < 60 || bh < 60) continue;
+      // Skip blocks that overlap a park.
+      let overlapsPark = false;
+      for (const p of parks) {
+        if (blockX0 < p.x + p.w / 2 && blockX1 > p.x - p.w / 2 &&
+            blockY0 < p.y + p.h / 2 && blockY1 > p.y - p.h / 2) {
+          overlapsPark = true;
+        }
+      }
+      if (overlapsPark) continue;
+      // Skip the block holding the safehouse plaza so the spawn area
+      // stays open, and the bank block so the vault approach is clear.
+      if (bx === 3 && by === 3) continue;
+      if (bx === 4 && by === 3) continue;
+      const two = rand.next() < 0.45 && bw > 170;
+      const count = two ? 2 : 1;
+      for (let k = 0; k < count && buildings.length < 62; k++) {
+        let w, h, x, y;
+        if (count === 2) {
+          w = Math.floor(bw / 2) - 14;
+          h = Math.floor(rand.range(70, Math.min(150, bh - 8)));
+          x = blockX0 + k * (bw / 2 + 7);
+          y = blockY0 + Math.floor(rand.range(0, Math.max(1, bh - h)));
+        } else {
+          w = Math.floor(rand.range(90, Math.min(200, bw)));
+          h = Math.floor(rand.range(70, Math.min(160, bh)));
+          x = blockX0 + Math.floor(rand.range(0, Math.max(1, bw - w)));
+          y = blockY0 + Math.floor(rand.range(0, Math.max(1, bh - h)));
+        }
+        buildings.push({
+          x, y, w, h,
+          color: PALETTE[colorIdx++ % PALETTE.length],
+          height: rand.int(2, 6),
+          roof: rand.pick(['#2b3242', '#3a2f2b', '#2f3a2b', '#33302e']),
+        });
       }
     }
-    return null;
+  }
+  // Top up with harbour-side warehouses if the grid pass came short.
+  while (buildings.length < 62) {
+    const i = buildings.length;
+    buildings.push({
+      x: 200 + (i % 8) * 300,
+      y: 1860 + Math.floor(i / 8) * 60,
+      w: 120, h: 60,
+      color: '#4a3a2e', height: 2, roof: '#33302e',
+    });
   }
 
-  // Closest point on the road network to (x, y).
-  function nearestRoadPoint(x, y) {
-    let best = null;
-    let bestD = Infinity;
-    for (const rx of ROAD_X) {
-      const py = clamp(y, ROAD_Y[0], ROAD_Y[ROAD_Y.length - 1]);
-      const d = dist(x, y, rx, py);
-      if (d < bestD) { bestD = d; best = { x: rx, y: py }; }
-    }
-    for (const ry of ROAD_Y) {
-      const px = clamp(x, ROAD_X[0], ROAD_X[ROAD_X.length - 1]);
-      const d = dist(x, y, px, ry);
-      if (d < bestD) { bestD = d; best = { x: px, y: ry }; }
-    }
-    return best;
-  }
-
-  // Nearest intersection indices { ix, iy }.
-  function nearestNode(x, y) {
-    const ix = clamp(Math.round((x - ROAD_X[0]) / 360), 0, NODE_COUNT_X - 1);
-    const iy = clamp(Math.round((y - ROAD_Y[0]) / 360), 0, NODE_COUNT_Y - 1);
-    return { ix, iy };
-  }
-
+  // Grid nodes: the road intersections, indexed ix 0..7, iy 0..5.
   function nodePoint(ix, iy) {
-    return { x: ROAD_X[ix], y: ROAD_Y[iy] };
+    return { x: ROAD_X[clamp(ix, 0, NODE_COUNT_X - 1)], y: ROAD_Y[clamp(iy, 0, NODE_COUNT_Y - 1)] };
   }
 
-  // Intersections one step away (up/down/left/right, inside the grid).
+  function nearestNode(x, y) {
+    let bestIx = 0;
+    let bestIy = 0;
+    let bestD = Infinity;
+    for (let ix = 0; ix < NODE_COUNT_X; ix++) {
+      for (let iy = 0; iy < NODE_COUNT_Y; iy++) {
+        const d = dist(x, y, ROAD_X[ix], ROAD_Y[iy]);
+        if (d < bestD) {
+          bestD = d;
+          bestIx = ix;
+          bestIy = iy;
+        }
+      }
+    }
+    return { ix: bestIx, iy: bestIy, x: ROAD_X[bestIx], y: ROAD_Y[bestIy], dist: bestD };
+  }
+
   function nodeNeighbours(ix, iy) {
     const out = [];
     if (ix > 0) out.push({ ix: ix - 1, iy });
@@ -218,66 +164,112 @@ export function buildCity(rng) {
     return out;
   }
 
-  // A random point on a road: pick a road line, a spot along it, and
-  // a small sideways offset so things do not all sit dead-centre.
-  function randomStreetPoint(r) {
-    if (r.next() < 0.5) {
-      const rx = r.pick(ROAD_X);
-      const y = r.range(ROAD_Y[0], ROAD_Y[ROAD_Y.length - 1]);
-      return { x: rx + r.range(-20, 20), y };
+  // Snap any point onto the nearest road centre line.
+  function nearestRoadPoint(x, y) {
+    if (y >= BEACH_TOP) return { x: clamp(x, 60, WORLD_WIDTH - 60), y: ROAD_Y[ROAD_Y.length - 1] };
+    let bestX = ROAD_X[0];
+    let bestD = Infinity;
+    for (const rx of ROAD_X) {
+      const d = Math.abs(x - rx);
+      if (d < bestD) { bestD = d; bestX = rx; }
     }
-    const ry = r.pick(ROAD_Y);
-    const x = r.range(ROAD_X[0], ROAD_X[ROAD_X.length - 1]);
-    return { x, y: ry + r.range(-20, 20) };
+    let bestY = ROAD_Y[0];
+    bestD = Infinity;
+    for (const ry of ROAD_Y) {
+      const d = Math.abs(y - ry);
+      if (d < bestD) { bestD = d; bestY = ry; }
+    }
+    // Snap along the closer axis: keep the coordinate that is already
+    // nearer to a road line, snap the other one.
+    const dx = Math.abs(x - bestX);
+    const dy = Math.abs(y - bestY);
+    if (dx <= dy) return { x: bestX, y: clamp(y, 60, BEACH_TOP - 40) };
+    return { x: clamp(x, 60, WORLD_WIDTH - 60), y: bestY };
   }
 
-  // Push a circle out of any building it overlaps and keep it inside
-  // the world. Two call shapes, both used across the codebase:
-  //   resolveCircle(entity) — entity { x, y, radius }, moved in place.
-  //   resolveCircle(x, y, radius) — returns a fresh { x, y }.
-  // Either way the returned value is the resolved position.
-  function resolveCircle(ent, y, radius) {
-    let target;
-    let r;
-    if (typeof ent === 'number') {
-      target = { x: ent, y: y || 0 };
-      r = radius || 12;
-    } else {
-      target = ent;
-      r = ent.radius || ent.r || 12;
-    }
+  function pointInBuilding(x, y) {
     for (const b of buildings) {
-      const cx = clamp(target.x, b.x, b.x + b.w);
-      const cy = clamp(target.y, b.y, b.y + b.h);
-      const dx = target.x - cx;
-      const dy = target.y - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 >= r * r) continue;
-      if (d2 === 0) {
-        // Dead centre: shove out through the nearest wall.
-        const left = target.x - b.x;
-        const right = b.x + b.w - target.x;
-        const top = target.y - b.y;
-        const bottom = b.y + b.h - target.y;
-        const m = Math.min(left, right, top, bottom);
-        if (m === left) target.x = b.x - r;
-        else if (m === right) target.x = b.x + b.w + r;
-        else if (m === top) target.y = b.y - r;
-        else target.y = b.y + b.h + r;
-        continue;
-      }
-      const d = Math.sqrt(d2);
-      const push = (r - d) / d;
-      target.x += dx * push;
-      target.y += dy * push;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
     }
-    target.x = clamp(target.x, 16, WORLD_W - 16);
-    target.y = clamp(target.y, 16, WORLD_H - 16);
-    return target;
+    return null;
   }
 
-  // The sea is everything below y 2100.
-  function isInSea(x, y) {
-    return y > SEA_TOP;
+  // Push a circle (entity with x, y, radius r) out of any building it
+  // overlaps. Returns true when a push happened. Callers move the
+  // entity, then call this to keep it out of walls.
+  function resolveCircle(ent, r) {
+    const radius = r || ent.radius || 11;
+    let pushed = false;
+    for (const b of buildings) {
+      const cx = clamp(ent.x, b.x, b.x + b.w);
+      const cy = clamp(ent.y, b.y, b.y + b.h);
+      const dx = ent.x - cx;
+      const dy = ent.y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < radius * radius) {
+        pushed = true;
+        if (d2 > 0.0001) {
+          const d = Math.sqrt(d2);
+          ent.x = cx + (dx / d) * radius;
+          ent.y = cy + (dy / d) * radius;
+        } else {
+          // Dead centre: push out along the smallest penetration axis.
+          const left = ent.x - b.x;
+          const right = b.x + b.w - ent.x;
+          const top = ent.y - b.y;
+          const bottom = b.y + b.h - ent.y;
+          const m = Math.min(left, right, top, bottom);
+          if (m === left) ent.x = b.x - radius;
+          else if (m === right) ent.x = b.x + b.w + radius;
+          else if (m === top) ent.y = b.y - radius;
+          else ent.y = b.y + b.h + radius;
+        }
+      }
+    }
+    return pushed;
   }
+
+  // A random point on a road: one coordinate snapped to a road line.
+  function randomStreetPoint(r) {
+    const rng2 = r || rand;
+    const rx = ROAD_X[Math.floor(rng2.next() * ROAD_X.length)];
+    const ry = ROAD_Y[Math.floor(rng2.next() * ROAD_Y.length)];
+    if (rng2.next() < 0.5) {
+      return { x: rx, y: Math.floor(rng2.range(120, BEACH_TOP - 60)) };
+    }
+    return { x: Math.floor(rng2.range(120, WORLD_WIDTH - 120)), y: ry };
+  }
+
+  function isRoad(x, y) {
+    return isRoadPoint(x, y);
+  }
+
+  function isInSea(x, y) {
+    return isInSeaPoint(x, y);
+  }
+
+  const city = {
+    buildings,
+    parks,
+    landmarks,
+    landmarkList: LANDMARK_DEFS.map((d) => landmarks[d.key]),
+    nodeCountX: NODE_COUNT_X,
+    nodeCountY: NODE_COUNT_Y,
+    width: WORLD_WIDTH,
+    height: WORLD_HEIGHT,
+    isRoad,
+    isRoadPoint,
+    pointInBuilding,
+    nearestRoadPoint,
+    nearestNode,
+    nodePoint,
+    nodeNeighbours,
+    randomStreetPoint,
+    resolveCircle,
+    isInSea,
+    isInSeaPoint,
+  };
+  return city;
 }
+
+export default buildCity;
