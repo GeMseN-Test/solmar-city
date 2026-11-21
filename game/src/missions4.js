@@ -1,45 +1,45 @@
-// Solmar City — story missions M11–M12 (attempt 3).
-// Written from v2-spec.md only. Appended to MISSIONS by
-// registerMissions4(); calling it twice changes nothing.
-// M12 is the last mission: finishing it sets storyComplete.
-import { MISSIONS } from './missions.js';
+// missions4.js — Solmar City story missions M11–M12 (the finale).
+// Written from the attempt-3 spec only. Uses only proven objective kinds.
+import { MISSIONS, spawnMissionGang } from './missions.js';
 
-const EXTRA = [
+const V4_MISSIONS = [
   {
-    id: 'M11',
+    id: 'm11',
     title: 'Midnight Run',
-    briefing: 'Midnight at the Docks: the Harbor Rats are back. Settle it, then run the boat out to Gull Island.',
+    briefing: 'One last harbor run after midnight: clear the Rats, sail the island.',
     reward: 3000,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Reach Solmar Docks' },
+      { kind: 'reach', key: 'docks', text: 'Reach the Solmar Docks' },
       { kind: 'defeat', count: 4, text: 'Defeat 4 Harbor Rats' },
-      { kind: 'reach', key: 'marina', text: 'Reach Solmar Marina' },
-      { kind: 'board', text: 'Board a boat' },
-      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Reach the Solmar Marina' },
+      { kind: 'board', text: 'Board a boat (press E near one)' },
+      { kind: 'reach', key: 'island', text: 'Reach Gull Island' },
     ],
   },
   {
-    id: 'M12',
+    id: 'm12',
     title: 'The Solmar Crown',
-    briefing: 'The Bank vault. Six guards. One clean getaway to the Garage. Take the Crown.',
+    briefing: 'The bank. The vault. Six guards. Then home to the garage — a legend.',
     reward: 10000,
     objectives: [
-      { kind: 'reach', key: 'bank', text: 'Reach Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault (4 stars)' },
+      { kind: 'reach', key: 'bank', text: 'Reach the Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
       { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\u2019s Safehouse' },
-      { kind: 'reach', key: 'garage', text: 'Drive home to Ray\u2019s Garage' },
+      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\'s Safehouse' },
+      { kind: 'reach', key: 'garage', text: 'Reach Ray\'s Garage' },
     ],
   },
 ];
 
-let registered = false;
-
-// Append M11–M12 to MISSIONS. Idempotent: a second call is a no-op.
-export function registerMissions4() {
-  if (registered) return;
-  registered = true;
-  for (const m of EXTRA) {
-    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
+// Idempotent: appends M11–M12 once, even if called again.
+export function registerStoryMissions() {
+  for (const def of V4_MISSIONS) {
+    if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
   }
+  return MISSIONS;
+}
+
+// Same gang-spawn contract as missions2/3.
+export function setupV2Mission(state, def) {
+  return spawnMissionGang(state, def);
 }

@@ -1,20 +1,15 @@
 // combat.js — shooting, punching and gang AI for Solmar City.
-// The player fires hitscan-style bullets (fast projectiles) and can
-// punch up close; gang members chase, hold their ground and shoot.
-// IMPORTANT: dead enemies (hp <= 0) are LEFT in place here — kill
-// counting and sweeping happen only in world.step, never here.
-// Cooldowns tick down every stepCombat call: gun 0.22s, punch 0.45s.
+// state.combat = { bullets, enemies, gunCooldown, punchCooldown }.
+// Dead enemies are LEFT in place — world.step sweeps them and counts
+// the kill exactly once. stepCombat decrements both cooldowns every
+// frame (old bug: the player could only shoot/punch once ever).
 
 import { PLAYER } from './config.js';
-import { clamp, dist, angleDiff, turnToward, wrapAngle } from './util.js';
+import { randRange, pick } from './random.js';
+import { clamp, dist, normalizeAngle, angleDiff } from './util.js';
 
-const SKIN_TONES = ['#e8b98a', '#c98d5f', '#8a5a3b', '#f0c8a0', '#6e4426'];
-const GANG_SHIRT = '#7a2d8f';
-const ENEMY_BULLET_SPEED = 540;
-const ENEMY_BULLET_DAMAGE = 9;
-const ENEMY_SHOOT_COOLDOWN = 1.15;
-const ENEMY_CHASE_MIN = 260;
-const ENEMY_CHASE_MAX = 600;
+const SKINS = ['#e8b98a', '#c98d5f', '#8a5a3b', '#f0c8a0', '#a06b42'];
+const ENEMY_SHIRT = '#7a2d8f';
 
 export function createCombat() {
   return {
@@ -25,70 +20,49 @@ export function createCombat() {
   };
 }
 
-function combatOf(state) {
-  if (!state.combat) state.combat = createCombat();
-  return state.combat;
-}
-
-// Spawn `count` gang members around (x, y), scattered +/-70px.
-// Each one wanders near its anchor until the player gets close.
 export function spawnGang(state, x, y, count) {
-  const combat = combatOf(state);
-  const spawned = [];
-  for (let i = 0; i < count; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const r = 20 + Math.random() * 50;
+  const combat = state.combat || (state.combat = createCombat());
+  const rng = state.rng;
+  const made = [];
+  for (let i = 0; i < count; i += 1) {
+    const ex = x + (rng ? randRange(rng, -70, 70) : (Math.random() * 140 - 70));
+    const ey = y + (rng ? randRange(rng, -70, 70) : (Math.random() * 140 - 70));
     const enemy = {
-      x: x + Math.cos(a) * r,
-      y: y + Math.sin(a) * r,
-      angle: Math.random() * Math.PI * 2,
+      x: ex,
+      y: ey,
+      angle: rng ? randRange(rng, 0, Math.PI * 2) : Math.random() * Math.PI * 2,
       hp: 100,
-      maxHp: 100,
-      speed: 140 + Math.random() * 30,
-      shootCooldown: Math.random() * ENEMY_SHOOT_COOLDOWN,
-      shirt: GANG_SHIRT,
-      skin: SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)],
-      wanderX: x,
-      wanderY: y,
-      wanderTimer: Math.random() * 2,
+      speed: rng ? randRange(rng, 140, 170) : 140 + Math.random() * 30,
+      shootCooldown: rng ? randRange(rng, 0, 1.15) : Math.random() * 1.15,
+      shirt: ENEMY_SHIRT,
+      skin: rng ? pick(rng, SKINS) : SKINS[0],
+      wanderX: ex,
+      wanderY: ey,
+      wanderTimer: 0,
       anchorX: x,
       anchorY: y,
     };
     combat.enemies.push(enemy);
-    spawned.push(enemy);
+    made.push(enemy);
   }
-  return spawned;
+  return made;
 }
 
-// Fire one player bullet from (x, y) along `angle`. When x/y/angle are
-// omitted the player's position and aim are used. Needs gunCooldown 0
-// and at least 1 ammo; muzzle is 16px ahead of the shooter. Returns
-// false when the player is dead, busted, or out of ammo — the gun
-// never fires from an invalid state.
 export function firePlayerBullet(state, x, y, angle) {
-  const combat = combatOf(state);
+  const combat = state.combat;
   const p = state.player;
-  if (!p) return false;
-  if (p.hp <= 0) return false;
-  if (state.busted) return false;
+  if (!combat || !p) return false;
   if (combat.gunCooldown > 0) return false;
   if (p.ammo <= 0) return false;
-  const ox = x != null ? x : p.x;
-  const oy = y != null ? y : p.y;
-  const a = angle != null ? angle : (p.aimAngle != null ? p.aimAngle : p.angle);
-  const muzzle = 16;
-  const bx = ox + Math.cos(a) * muzzle;
-  const by = oy + Math.sin(a) * muzzle;
+  const mx = x + Math.cos(angle) * 16;
+  const my = y + Math.sin(angle) * 16;
   combat.bullets.push({
-    x: bx,
-    y: by,
-    angle: a,
-    vx: Math.cos(a) * PLAYER.bulletSpeed,
-    vy: Math.sin(a) * PLAYER.bulletSpeed,
+    x: mx,
+    y: my,
+    angle,
     speed: PLAYER.bulletSpeed,
     damage: PLAYER.gunDamage,
     life: PLAYER.gunRange / PLAYER.bulletSpeed,
-    maxLife: PLAYER.gunRange / PLAYER.bulletSpeed,
     from: 'player',
   });
   p.ammo -= 1;
@@ -96,150 +70,158 @@ export function firePlayerBullet(state, x, y, angle) {
   return true;
 }
 
-// Punch: hits every living enemy within punchRange + 11px of the
-// player and inside punchArc of the player's aim. 0.45s cooldown.
 export function meleeAttack(state) {
-  const combat = combatOf(state);
+  const combat = state.combat;
   const p = state.player;
-  if (!p) return 0;
+  if (!combat || !p) return 0;
   if (combat.punchCooldown > 0) return 0;
   combat.punchCooldown = PLAYER.punchCooldown;
-  const reach = PLAYER.punchRange + 11;
-  const aim = p.aimAngle != null ? p.aimAngle : p.angle;
   let hits = 0;
+  const range = PLAYER.punchRange + 11;
   for (const e of combat.enemies) {
     if (e.hp <= 0) continue;
     const d = dist(p.x, p.y, e.x, e.y);
-    if (d > reach) continue;
+    if (d > range) continue;
     const toEnemy = Math.atan2(e.y - p.y, e.x - p.x);
-    if (Math.abs(angleDiff(aim, toEnemy)) > PLAYER.punchArc) continue;
+    if (Math.abs(angleDiff(p.aimAngle, toEnemy)) > PLAYER.punchArc) continue;
     e.hp -= PLAYER.punchDamage;
-    hits++;
+    hits += 1;
   }
   return hits;
 }
 
-// One frame of combat. Cooldowns tick down FIRST so the player can
-// always fire again after 0.22s. Bullets move and expire; enemies
-// chase (260-600px), hold and shoot inside ~260px (1.15s cadence,
-// gun range 520), and wander near their anchor when far away.
-// Dead enemies are deliberately left in the list for world.step.
-export function stepCombat(state, dt) {
-  const combat = combatOf(state);
-  const step = dt || 0.016;
-  let events = 0;
+function bulletHitsBuilding(state, x, y) {
+  const city = state.city;
+  if (!city || !city.pointInBuilding) return false;
+  return !!city.pointInBuilding(x, y);
+}
 
-  // Cooldowns MUST decrease every step — otherwise the gun fires once
-  // and then never again (the old bug this rewrite fixes). Both timers
-  // are clamped at zero so a long frame can never drive them negative
-  // and a short frame still counts down proportionally.
+export function stepCombat(state, dt) {
+  // Substep large frames so a 0.25s dt advances 0.25s of game time
+  // instead of being clamped to a single 0.05s frame.
+  const total = Math.max(0.001, dt || 0.016);
+  const n = Math.max(1, Math.ceil(total / 0.05));
+  const sub = total / n;
+  for (let i = 0; i < n; i += 1) stepCombatOnce(state, sub);
+}
+
+function stepCombatOnce(state, step) {
+  const combat = state.combat;
+  const p = state.player;
+  if (!combat || !p) return;
+  // Cooldowns tick down every frame — this is the fix for the
+  // "shoot once ever" bug.
   if (combat.gunCooldown > 0) combat.gunCooldown = Math.max(0, combat.gunCooldown - step);
   if (combat.punchCooldown > 0) combat.punchCooldown = Math.max(0, combat.punchCooldown - step);
 
-  const p = state.player;
-  const city = state.city;
-
-  // --- Bullets -------------------------------------------------------
-  for (let i = combat.bullets.length - 1; i >= 0; i--) {
-    const b = combat.bullets[i];
+  // Move bullets, resolve hits, drop the dead ones.
+  const alive = [];
+  for (const b of combat.bullets) {
+    b.x += Math.cos(b.angle) * b.speed * step;
+    b.y += Math.sin(b.angle) * b.speed * step;
     b.life -= step;
-    b.x += b.vx * step;
-    b.y += b.vy * step;
-    let dead = b.life <= 0;
-    if (!dead && city && city.pointInBuilding && city.pointInBuilding(b.x, b.y)) dead = true;
-    if (!dead && (b.x < 0 || b.x > 2880 || b.y < 0 || b.y > 2160)) dead = true;
-    if (!dead && b.from === 'player') {
+    if (b.life <= 0) continue;
+    if (bulletHitsBuilding(state, b.x, b.y)) continue;
+    if (b.from === 'player') {
+      let hit = false;
       for (const e of combat.enemies) {
         if (e.hp <= 0) continue;
-        if (dist(b.x, b.y, e.x, e.y) <= 14) {
+        if (dist(b.x, b.y, e.x, e.y) < 16) {
           e.hp -= b.damage;
-          dead = true;
+          hit = true;
           break;
         }
       }
-    }
-    if (!dead && b.from === 'enemy' && p && p.hp > 0) {
-      const radius = p.inCar || p.inBoat ? 22 : 11;
-      if (dist(b.x, b.y, p.x, p.y) <= radius + 4) {
+      if (hit) continue;
+    } else {
+      if (dist(b.x, b.y, p.x, p.y) < 14) {
         if (!p.invuln || p.invuln <= 0) {
-          p.hp = Math.max(0, p.hp - b.damage);
+          p.hp = Math.max(0, (p.hp || 100) - b.damage);
+          p.invuln = 0.3;
         }
-        dead = true;
+        continue;
       }
     }
-    if (dead) combat.bullets.splice(i, 1);
+    alive.push(b);
   }
+  combat.bullets = alive;
 
-  // --- Enemies -------------------------------------------------------
-  if (p) {
-    for (const e of combat.enemies) {
-      if (e.hp <= 0) continue;
+  // Enemy AI: chase at 260–600px, hold and shoot under ~260px,
+  // wander near the anchor when far away.
+  for (const e of combat.enemies) {
+    if (e.hp <= 0) continue;
+    const d = dist(e.x, e.y, p.x, p.y);
+    const toPlayer = Math.atan2(p.y - e.y, p.x - e.x);
+    if (d < 260) {
+      e.angle = toPlayer;
       if (e.shootCooldown > 0) e.shootCooldown -= step;
-      const d = dist(e.x, e.y, p.x, p.y);
-      const toPlayer = Math.atan2(p.y - e.y, p.x - e.x);
-      if (d > ENEMY_CHASE_MAX) {
-        // Wander near the anchor point.
-        e.wanderTimer -= step;
-        if (e.wanderTimer <= 0) {
-          e.wanderTimer = 1.5 + Math.random() * 2;
-          const a = Math.random() * Math.PI * 2;
-          e.wanderX = e.anchorX + Math.cos(a) * 60;
-          e.wanderY = e.anchorY + Math.sin(a) * 60;
-        }
-        const toWander = Math.atan2(e.wanderY - e.y, e.wanderX - e.x);
-        e.angle = turnToward(e.angle, toWander, 2.4 * step);
-        const wd = dist(e.x, e.y, e.wanderX, e.wanderY);
-        if (wd > 12) {
-          e.x += Math.cos(e.angle) * e.speed * 0.45 * step;
-          e.y += Math.sin(e.angle) * e.speed * 0.45 * step;
-        }
-      } else if (d > ENEMY_CHASE_MIN) {
-        // Chase the player.
-        e.angle = turnToward(e.angle, toPlayer, 3.2 * step);
-        e.x += Math.cos(e.angle) * e.speed * step;
-        e.y += Math.sin(e.angle) * e.speed * step;
-      } else {
-        // Hold ground and shoot (only inside gun range).
-        e.angle = turnToward(e.angle, toPlayer, 4 * step);
-        if (d <= PLAYER.gunRange && e.shootCooldown <= 0) {
-          e.shootCooldown = ENEMY_SHOOT_COOLDOWN;
-          combat.bullets.push({
-            x: e.x + Math.cos(e.angle) * 16,
-            y: e.y + Math.sin(e.angle) * 16,
-            angle: e.angle,
-            vx: Math.cos(e.angle) * ENEMY_BULLET_SPEED,
-            vy: Math.sin(e.angle) * ENEMY_BULLET_SPEED,
-            speed: ENEMY_BULLET_SPEED,
-            damage: ENEMY_BULLET_DAMAGE,
-            life: PLAYER.gunRange / ENEMY_BULLET_SPEED,
-            maxLife: PLAYER.gunRange / ENEMY_BULLET_SPEED,
-            from: 'enemy',
-          });
-          events |= 128; // ENEMY_SHOT
-        }
+      if (e.shootCooldown <= 0 && d < PLAYER.gunRange) {
+        e.shootCooldown = 1.15;
+        combat.bullets.push({
+          x: e.x + Math.cos(toPlayer) * 16,
+          y: e.y + Math.sin(toPlayer) * 16,
+          angle: toPlayer,
+          speed: 540,
+          damage: 9,
+          life: PLAYER.gunRange / 540,
+          from: 'enemy',
+        });
       }
-      // Stay out of walls.
-      if (city && city.resolveCircle) city.resolveCircle(e, 11);
-      e.x = clamp(e.x, 16, 2864);
-      e.y = clamp(e.y, 16, 2096);
+    } else if (d < 600) {
+      e.angle = toPlayer;
+      e.x += Math.cos(toPlayer) * e.speed * step;
+      e.y += Math.sin(toPlayer) * e.speed * step;
+    } else {
+      e.wanderTimer -= step;
+      if (e.wanderTimer <= 0) {
+        const rng = state.rng;
+        const ax = e.anchorX !== undefined ? e.anchorX : e.x;
+        const ay = e.anchorY !== undefined ? e.anchorY : e.y;
+        e.wanderX = ax + (rng ? randRange(rng, -90, 90) : (Math.random() * 180 - 90));
+        e.wanderY = ay + (rng ? randRange(rng, -90, 90) : (Math.random() * 180 - 90));
+        e.wanderTimer = rng ? randRange(rng, 1.5, 3.5) : 2 + Math.random() * 2;
+      }
+      const wd = dist(e.x, e.y, e.wanderX, e.wanderY);
+      if (wd > 8) {
+        const wa = Math.atan2(e.wanderY - e.y, e.wanderX - e.x);
+        e.angle = wa;
+        e.x += Math.cos(wa) * e.speed * 0.45 * step;
+        e.y += Math.sin(wa) * e.speed * 0.45 * step;
+      }
+    }
+    // Keep enemies out of buildings and inside the world.
+    if (state.city && state.city.resolveCircle) {
+      const fixed = state.city.resolveCircle(e.x, e.y, 12);
+      e.x = fixed.x;
+      e.y = fixed.y;
+    }
+    e.x = clamp(e.x, 12, 2868);
+    e.y = clamp(e.y, 12, 2148);
+  }
+
+  // Gang separation: living enemies push apart so they never stack
+  // on one pixel and read as a single shooter.
+  const living = combat.enemies.filter((e) => e.hp > 0);
+  for (let i = 0; i < living.length; i += 1) {
+    for (let j = i + 1; j < living.length; j += 1) {
+      const a = living[i];
+      const b = living[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < 24 * 24 && d2 > 0.01) {
+        const d = Math.sqrt(d2);
+        const push = (24 - d) / 2;
+        const nx = dx / d;
+        const ny = dy / d;
+        a.x -= nx * push;
+        a.y -= ny * push;
+        b.x += nx * push;
+        b.y += ny * push;
+      }
     }
   }
-  return events;
+  void normalizeAngle;
 }
 
-// How many gang members are still standing (hp > 0).
-export function enemiesAlive(state) {
-  const combat = combatOf(state);
-  let n = 0;
-  for (const e of combat.enemies) if (e.hp > 0) n++;
-  return n;
-}
-
-export default {
-  createCombat,
-  spawnGang,
-  firePlayerBullet,
-  meleeAttack,
-  stepCombat,
-  enemiesAlive,
-};
+export default { createCombat, spawnGang, firePlayerBullet, meleeAttack, stepCombat };

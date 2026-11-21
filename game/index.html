@@ -4,74 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Solmar City — an open-world crime game</title>
+<link rel="icon" href="data:,">
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: #0b0e1a;
-    color: #e8e8f0;
-    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-    min-height: 100%;
-  }
-  body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 16px;
-    box-sizing: border-box;
-  }
-  h1 {
-    margin: 0;
-    font-size: 28px;
-    letter-spacing: 4px;
-    color: #ffd23a;
-    text-shadow: 0 2px 12px rgba(255, 210, 58, 0.35);
-  }
-  h1 span { color: #5ec8f2; }
-  p.tagline {
-    margin: 0;
-    color: #9aa3c0;
-    font-size: 14px;
-  }
-  canvas#game {
-    display: block;
-    width: 1280px;
-    max-width: 96vw;
-    height: 800px;
-    max-height: 78vh;
-    background: #10142a;
-    border: 2px solid #2a3358;
-    border-radius: 8px;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
-    image-rendering: auto;
-    outline: none;
-  }
-  p.help {
-    margin: 0;
-    color: #7c86a8;
-    font-size: 13px;
-    text-align: center;
-    max-width: 1280px;
-    line-height: 1.6;
-  }
-  p.help b { color: #c8cede; }
-  noscript { color: #ff9a9a; }
+  html, body { margin: 0; padding: 0; background: #0b0e14; color: #e8ecf1; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+  h1 { font-size: 20px; margin: 14px 0 4px; letter-spacing: 1px; }
+  p.sub { margin: 0 0 10px; color: #9aa7b8; font-size: 13px; }
+  #wrap { position: relative; }
+  canvas { display: block; background: #10151f; border: 1px solid #263142; max-width: 96vw; height: auto; }
+  #status { margin: 10px 0 4px; font-size: 13px; color: #9aa7b8; min-height: 18px; text-align: center; }
+  #help { font-size: 12px; color: #6b7a8d; text-align: center; max-width: 760px; line-height: 1.6; padding: 0 12px 20px; }
+  kbd { background: #1c2634; border: 1px solid #33445a; border-radius: 4px; padding: 0 5px; font-size: 11px; }
 </style>
 </head>
 <body>
-<h1>SOLMAR <span>CITY</span></h1>
-<p class="tagline">An open-world crime game — 12 story missions, the Solmar Grand Prix, SCPD chases, boats &amp; 5 radio stations.</p>
-<canvas id="game" width="1280" height="800" tabindex="0"></canvas>
-<p class="help">
-  <b>Enter</b> start &nbsp;·&nbsp; <b>WASD / arrows</b> move &amp; drive &nbsp;·&nbsp;
-  <b>Mouse</b> aim &amp; shoot &nbsp;·&nbsp; <b>Space</b> punch / handbrake &nbsp;·&nbsp;
-  <b>E</b> steal car / board boat / interact &nbsp;·&nbsp; <b>Q</b> radio station &nbsp;·&nbsp;
-  <b>Shift</b> run &nbsp;·&nbsp; <b>M</b> mute &nbsp;·&nbsp; <b>P</b> pause
-</p>
-<p class="help">Solmar City. Press Enter or click New Game to play.</p>
-<noscript>Solmar City needs JavaScript to run.</noscript>
+<h1>SOLMAR CITY</h1>
+<p class="sub">An open-world crime game — 12 missions, SCPD heat, boats, radio, taxis &amp; coins.</p>
+<div id="wrap">
+  <canvas id="game" width="1280" height="800"></canvas>
+</div>
+<div id="status">Solmar City. Press Enter or click New Game to play.</div>
+<div id="help">
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &amp; drive &nbsp;·&nbsp; <kbd>E</kbd> steal car / board boat &nbsp;·&nbsp; mouse aim, click shoot &nbsp;·&nbsp; <kbd>Space</kbd> punch / handbrake &nbsp;·&nbsp; <kbd>Q</kbd> radio &nbsp;·&nbsp; <kbd>M</kbd> mute &nbsp;·&nbsp; <kbd>P</kbd> pause &nbsp;·&nbsp; <kbd>Shift</kbd> run
+</div>
+<noscript><p>Solmar City needs JavaScript to play.</p></noscript>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

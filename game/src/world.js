@@ -1,26 +1,39 @@
-// Solmar City — world simulation.
-// Written from v2-spec.md only. createWorld(seed) builds the whole game
-// state; step(input, dt) advances it one frame and returns an events
-// bitmask. The world owns the rules that must happen exactly once per
-// frame: killing (dead enemies are swept here and only here), wanted
-// decay, police sync, mission ticks, pickups, and the Grand Prix clock.
+// world.js — Solmar City world simulation: state, step, save, respawn.
+// Written from the v2 spec + probed facts only (see FINISH.md).
+//   createRng(seed) returns an object with .next() (no mulberry32 export).
+//   state.combat = { bullets, enemies, gunCooldown, punchCooldown }.
+//   state.police = { cars, cops, bustTimer, spawnCooldown, siren } — NO wanted.
+//   world.js is the ONLY writer of police.wanted (sync before stepPolice).
+//   Wanted decay ONLY here (stepWanted: 12s delay, then -1 every 8s).
+//   Kill sweep + counting ONLY here, exactly once per step.
 import { createRng } from './random.js';
 import { buildCity } from './city.js';
-import { createCombat, stepCombat, firePlayerBullet, meleeAttack } from './combat.js';
-import { createTraffic, stepTraffic } from './traffic.js';
-import { createBoats, stepBoating } from './boats.js';
-import { createRadio } from './radio.js';
-import { createAudio } from './audio.js';
+import { createCombat, firePlayerBullet, meleeAttack, stepCombat } from './combat.js';
 import { createPolice, stepPolice } from './police.js';
 import { createPolice2, stepPolice2 } from './police2.js';
+import { createBoats, stepBoating } from './boats.js';
+import { createRadio } from './radio.js';
 import { createSideJobs, stepSideJobs } from './sidejobs.js';
-import { MISSIONS, startMission, updateMission } from './missions.js';
-import { registerStoryMissions } from './missions2.js';
-import { registerMissions3 } from './missions3.js';
-import { registerMissions4 } from './missions4.js';
+import { createTraffic, stepTraffic } from './traffic.js';
+import {
+  MISSIONS,
+  registerStoryMissions as registerM1,
+  updateMission,
+  tryInteract,
+  startMission,
+} from './missions.js';
+import { registerStoryMissions as registerM2 } from './missions2.js';
+import { registerStoryMissions as registerM3 } from './missions3.js';
+import { registerStoryMissions as registerM4 } from './missions4.js';
 
-// Events bitmask returned by step().
-export const EVENTS = {
+// Register all 12 story missions (idempotent, safe to call again).
+registerM1();
+registerM2();
+registerM3();
+registerM4();
+
+// Event bitmask returned by step().
+export const EV = {
   SHOT: 1,
   PUNCH: 2,
   PICKUP: 4,
@@ -34,465 +47,321 @@ export const EVENTS = {
   MISSION_COMPLETE: 1024,
 };
 
-// World facts from the spec (probed, do not guess elsewhere).
-export const WORLD_WIDTH = 2880;
-export const WORLD_HEIGHT = 2160;
-export const SEA_TOP = 2100;
-export const BEACH_TOP = 2020;
-const PLAYER_SPAWN = { x: 1420, y: 1230, angle: -Math.PI / 2 };
+// Action bitmask (mirrors input.js).
+export const ACTION = {
+  CONFIRM: 1,
+  PAUSE: 2,
+  INTERACT: 4,
+  PUNCH: 8,
+  MUTE: 16,
+  RADIO: 32,
+};
+
+// Spec constants (config.js values, written out here so world.js never
+// depends on another module's constant names).
+const WORLD_W = 2880;
+const WORLD_H = 2160;
+const SEA_TOP = 2100;
+const BEACH_TOP = 2020;
+const PLAYER_WALK = 175;
+const PLAYER_RUN = 268;
 const PLAYER_RADIUS = 11;
-const WALK_SPEED = 175;
-const RUN_SPEED = 268;
 const CAR_ACCEL = 640;
 const CAR_BRAKE = 980;
 const CAR_REVERSE = 420;
 const CAR_MAX_SPEED = 560;
 const CAR_MAX_REVERSE = 190;
-const CAR_TURN_RATE = 2.7;
+const CAR_TURN = 2.7;
 const CAR_DRAG = 0.55;
-const WANTED_MAX = 5;
-const WANTED_DECAY_DELAY = 12;
-const WANTED_DECAY_EVERY = 8;
-const BUST_SECONDS = 1.6;
 const MONEY_START = 50;
-const GRAND_PRIX_COUNTDOWN = 3600;
+const BUST_SECONDS = 1.6;
 
-// No-op audio stand-in for headless runs (node smoke tests).
-function silentAudio() {
-  const noop = () => {};
-  return {
-    ensure: noop, isMuted: () => false, setMuted: noop, engine: noop,
-    siren: noop, stepMusic: noop, shot: noop, enemyShot: noop,
-    punch: noop, crash: noop, pickup: noop, missionComplete: noop,
-    click: noop, busted: noop,
-  };
+const CAR_COLORS = ['#d23b3b', '#3b7dd2', '#e0a83c', '#4caf50', '#8e44ad', '#e0e0e0'];
+const CAR_MODELS = ['sedan', 'van', 'taxi', 'sport', 'truck'];
+
+function rand(rng, a, b) {
+  return a + rng.next() * (b - a);
+}
+function pick(rng, arr) {
+  return arr[Math.floor(rng.next() * arr.length)];
+}
+function clamp(v, a, b) {
+  return v < a ? a : v > b ? b : v;
+}
+function dist(x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
-function spawnPickups(rng, city) {
-  const list = [];
-  const kinds = [];
-  for (let i = 0; i < 14; i++) kinds.push({ kind: 'cash', amount: 60 });
-  for (let i = 0; i < 8; i++) kinds.push({ kind: 'health', amount: 40 });
-  for (let i = 0; i < 8; i++) kinds.push({ kind: 'ammo', amount: 36 });
-  for (const k of kinds) {
-    const pt = city.randomStreetPoint(rng);
-    list.push({ x: pt.x, y: pt.y, kind: k.kind, amount: k.amount, taken: false, bob: rng.next() * 6 });
-  }
-  return list;
-}
-
-export function createWorld(seed) {
-  // Story missions M6–M12 register onto MISSIONS (idempotent).
-  registerStoryMissions();
-  registerMissions3();
-  registerMissions4();
-
-  const rng = createRng(seed >>> 0);
+function initWorld(seed) {
+  const rng = createRng(seed);
   const city = buildCity(rng);
-
-  let audio;
-  try {
-    audio = createAudio();
-  } catch (e) {
-    audio = silentAudio();
-  }
-
   const state = {
-    seed: seed >>> 0,
+    seed,
     rng,
     city,
+    player: {
+      x: 1420, y: 1230, angle: -Math.PI / 2, aimAngle: -Math.PI / 2,
+      hp: 100, ammo: 48, inCar: false, car: null, inBoat: false, boat: null,
+      invuln: 0,
+    },
     combat: createCombat(),
-    traffic: createTraffic(rng, city),
-    boats: createBoats(rng),
-    radio: createRadio(),
-    audio,
     police: createPolice(),
     police2: createPolice2(),
+    boats: createBoats(rng),
+    radio: createRadio(),
     sideJobs: createSideJobs(rng, city),
+    traffic: createTraffic(rng, city),
+    parkedCars: [],
+    pickups: [],
     money: MONEY_START,
-    hp: 100,
-    ammo: 48,
-    kills: 0,
     wanted: 0,
-    wantedTimer: 0,
-    wantedDecays: 0,
-    missionIndex: 0,
+    kills: 0,
+    killsAtStart: 0,
+    missionIndex: -1,
+    missionStep: 0,
     missionsDone: 0,
     storyComplete: false,
-    mission: null,
-    crates: [],
-    player: {
-      x: PLAYER_SPAWN.x,
-      y: PLAYER_SPAWN.y,
-      angle: PLAYER_SPAWN.angle,
-      aimAngle: PLAYER_SPAWN.angle,
-      hp: 100,
-      ammo: 48,
-      inCar: false,
-      car: null,
-      inBoat: false,
-      boat: null,
-      invuln: 0,
-      gunCooldown: 0,
-      punchCooldown: 0,
-      speed: 0,
-    },
-    grandPrix: { startsIn: GRAND_PRIX_COUNTDOWN, total: GRAND_PRIX_COUNTDOWN },
     playTime: 0,
-    time: 0,
-    pickups: spawnPickups(rng, city),
-    camera: { x: PLAYER_SPAWN.x, y: PLAYER_SPAWN.y },
-    bustTimer: 0,
-    shootWantedCooldown: 0,
-    nextMissionTimer: 0,
-    banner: null,
-    screen: 'game',
-    prompt: null,
+    grandPrix: { startsIn: 2 * 3600 + 60 + 5 },
+    vaultTaken: false,
+    lastReward: 0,
+    lastMissionTitle: '',
+    wantedSince: 0,
+    wantedLastDecay: 0,
+    bustProgress: 0,
+    _prevWanted: 0,
   };
-
-  function respawnPlayer(reason) {
-    const p = state.player;
-    const safe = state.city.landmarks.safehouse;
-    p.x = safe ? safe.x : PLAYER_SPAWN.x;
-    p.y = safe ? safe.y : PLAYER_SPAWN.y;
-    p.angle = -Math.PI / 2;
-    p.aimAngle = -Math.PI / 2;
-    p.hp = 100;
-    p.inCar = false;
-    p.car = null;
-    p.inBoat = false;
-    p.boat = null;
-    p.speed = 0;
-    p.invuln = 3;
-    state.hp = 100;
-    state.wanted = 0;
-    state.wantedTimer = 0;
-    state.wantedDecays = 0;
-    if (state.police) state.police.wanted = 0;
-    state.bustTimer = 0;
-    state.banner = { text: reason === 'busted' ? 'BUSTED!' : 'WASTED!', t: 2.5 };
+  // Parked cars on the streets (stealable with E).
+  for (let i = 0; i < 8; i++) {
+    const pt = city.randomStreetPoint(rng);
+    state.parkedCars.push({
+      kind: 'parked',
+      x: pt.x, y: pt.y, angle: rand(rng, 0, Math.PI * 2), speed: 0,
+      color: pick(rng, CAR_COLORS), model: pick(rng, CAR_MODELS),
+    });
   }
-
-  // Wanted decay lives ONLY here. First decay ~12s after the last heat,
-  // then one star every ~8s. police.js never touches wanted.
-  function stepWanted(dt) {
-    if (state.wanted <= 0) {
-      state.wantedTimer = 0;
-      state.wantedDecays = 0;
-      return;
-    }
-    state.wantedTimer += dt;
-    const need = state.wantedDecays === 0 ? WANTED_DECAY_DELAY : WANTED_DECAY_EVERY;
-    if (state.wantedTimer >= need) {
-      state.wantedTimer = 0;
-      state.wantedDecays += 1;
-      state.wanted = Math.max(0, state.wanted - 1);
-    }
+  // Pickups: cash 14x$60, health 8x40, ammo 8x36.
+  const pickupKinds = [];
+  for (let i = 0; i < 14; i++) pickupKinds.push(['cash', 60]);
+  for (let i = 0; i < 8; i++) pickupKinds.push(['health', 40]);
+  for (let i = 0; i < 8; i++) pickupKinds.push(['ammo', 36]);
+  for (const [kind, value] of pickupKinds) {
+    const pt = city.randomStreetPoint(rng);
+    state.pickups.push({ kind, value, x: pt.x, y: pt.y, bob: rand(rng, 0, 6) });
   }
+  return state;
+}
 
-  function addHeat(n) {
-    state.wanted = Math.min(WANTED_MAX, (state.wanted || 0) + n);
-    state.wantedTimer = 0;
-    state.wantedDecays = 0;
+// Wanted decay: only after 12s quiet, then -1 star every 8s.
+function stepWanted(state) {
+  if (state.wanted <= 0) return;
+  if (state.playTime - state.wantedSince < 12) return;
+  if (state.playTime - state.wantedLastDecay >= 8) {
+    state.wanted = Math.max(0, state.wanted - 1);
+    state.wantedLastDecay = state.playTime;
   }
+}
 
-  function moveOnFoot(input, dt) {
-    const p = state.player;
-    let mx = input.mx || 0;
-    let my = input.my || 0;
-    const len = Math.hypot(mx, my);
-    if (len > 0) { mx /= len; my /= len; }
-    const speed = input.running ? RUN_SPEED : WALK_SPEED;
-    let nx = p.x + mx * speed * dt;
-    let ny = p.y + my * speed * dt;
-    nx = Math.max(16, Math.min(WORLD_WIDTH - 16, nx));
-    // On foot the sea is a wall: the beach ends at the waterline.
-    ny = Math.max(16, Math.min(SEA_TOP - 2, ny));
-    const fixed = state.city.resolveCircle(nx, ny, PLAYER_RADIUS);
-    if (fixed && typeof fixed.x === 'number' && typeof fixed.y === 'number') {
-      nx = fixed.x;
-      ny = fixed.y;
-    }
-    p.x = nx;
-    p.y = ny;
-    if (len > 0) p.angle = Math.atan2(my, mx);
-    p.speed = len > 0 ? speed : 0;
+function resolvePos(state, x, y, r) {
+  // city.resolveCircle(x, y, r) -> { x, y } (probed, attempt 10 retry 2).
+  if (state.city && typeof state.city.resolveCircle === 'function') {
+    return state.city.resolveCircle(x, y, r);
   }
+  return { x, y };
+}
 
-  function driveCar(input, dt) {
-    const p = state.player;
-    const car = p.car;
-    if (!car) { p.inCar = false; return; }
-    const steer = input.steer || 0;
-    const throttle = input.throttle || 0;
-    if (throttle > 0) car.speed += CAR_ACCEL * throttle * dt;
-    else if (throttle < 0) {
-      car.speed -= (car.speed > 10 ? CAR_BRAKE : CAR_REVERSE) * dt;
-    }
-    if (input.handbrake) {
-      // Hard decel + slide: speed bleeds fast, grip drops.
-      car.speed -= Math.sign(car.speed) * 1400 * dt;
-      if (Math.abs(car.speed) < 30) car.speed = 0;
-    }
+function stepOnFoot(state, input, dt) {
+  const p = state.player;
+  let mx = input.mx || 0;
+  let my = input.my || 0;
+  const len = Math.sqrt(mx * mx + my * my);
+  if (len > 1) { mx /= len; my /= len; }
+  const speed = input.running ? PLAYER_RUN : PLAYER_WALK;
+  let nx = p.x + mx * speed * dt;
+  let ny = p.y + my * speed * dt;
+  // Stay out of the sea on foot (beach edge).
+  ny = Math.min(ny, BEACH_TOP + 75);
+  nx = clamp(nx, 16, WORLD_W - 16);
+  ny = clamp(ny, 16, WORLD_H - 16);
+  const fixed = resolvePos(state, nx, ny, PLAYER_RADIUS);
+  p.x = fixed.x;
+  p.y = fixed.y;
+  if (len > 0.1) p.angle = Math.atan2(my, mx);
+}
+
+function stepDriving(state, input, dt) {
+  const p = state.player;
+  const car = p.car;
+  if (!car) { p.inCar = false; return 0; }
+  let events = 0;
+  const steer = clamp(input.steer || 0, -1, 1);
+  const throttle = clamp(input.throttle || 0, -1, 1);
+  const dir = car.speed >= 0 ? 1 : -1;
+  car.angle += steer * CAR_TURN * dt * clamp(Math.abs(car.speed) / 120, 0, 1) * dir;
+  if (input.handbrake) {
+    // Handbrake: hard decel + slight slide.
+    const dec = 1500 * dt;
+    if (Math.abs(car.speed) <= dec) car.speed = 0;
+    else car.speed -= Math.sign(car.speed) * dec;
+    car.angle += steer * 0.6 * dt * dir;
+  } else if (throttle > 0) {
+    car.speed += CAR_ACCEL * throttle * dt;
+  } else if (throttle < 0) {
+    if (car.speed > 5) car.speed -= CAR_BRAKE * dt;
+    else car.speed += CAR_REVERSE * throttle * dt;
+  } else {
     car.speed -= car.speed * CAR_DRAG * dt;
-    car.speed = Math.max(-CAR_MAX_REVERSE, Math.min(CAR_MAX_SPEED, car.speed));
-    const dir = car.speed >= 0 ? 1 : -1;
-    const grip = Math.min(1, Math.abs(car.speed) / 120);
-    car.angle += steer * CAR_TURN_RATE * dt * dir * grip;
-    let nx = car.x + Math.cos(car.angle) * car.speed * dt;
-    let ny = car.y + Math.sin(car.angle) * car.speed * dt;
-    nx = Math.max(16, Math.min(WORLD_WIDTH - 16, nx));
-    ny = Math.max(16, Math.min(SEA_TOP - 2, ny));
-    const fixed = state.city.resolveCircle(nx, ny, 23);
-    let crashed = false;
-    if (fixed && typeof fixed.x === 'number' && typeof fixed.y === 'number') {
-      if (Math.hypot(fixed.x - nx, fixed.y - ny) > 2 && Math.abs(car.speed) > 150) crashed = true;
-      nx = fixed.x;
-      ny = fixed.y;
-      if (Math.abs(car.speed) > 60) car.speed *= -0.15;
-    }
-    car.x = nx;
-    car.y = ny;
-    p.x = car.x;
-    p.y = car.y;
-    p.angle = car.angle;
-    p.speed = car.speed;
-    return crashed;
+    if (Math.abs(car.speed) < 4) car.speed = 0;
   }
-
-  function ramPedestrians() {
-    const p = state.player;
-    if (!p.inCar || !p.car) return false;
-    let hit = false;
-    for (const ped of state.traffic.peds || []) {
-      if (ped.down) continue;
-      if (Math.hypot(ped.x - p.car.x, ped.y - p.car.y) < 30 && Math.abs(p.car.speed) > 60) {
-        ped.down = true;
-        addHeat(1);
-        hit = true;
-      }
-    }
-    return hit;
+  car.speed = clamp(car.speed, -CAR_MAX_REVERSE, CAR_MAX_SPEED);
+  let nx = car.x + Math.cos(car.angle) * car.speed * dt;
+  let ny = car.y + Math.sin(car.angle) * car.speed * dt;
+  nx = clamp(nx, 16, WORLD_W - 16);
+  ny = clamp(ny, 16, SEA_TOP - 8); // cars stay out of the sea
+  const fixed = resolvePos(state, nx, ny, 22);
+  const hitWall = Math.abs(fixed.x - nx) > 0.5 || Math.abs(fixed.y - ny) > 0.5;
+  if (hitWall && Math.abs(car.speed) > 200) {
+    events |= EV.CRASH;
+    p.hp = Math.max(0, p.hp - 6);
+    car.speed *= 0.4;
+  } else if (hitWall) {
+    car.speed *= 0.5;
   }
-
-  function collectPickups() {
-    const p = state.player;
-    let events = 0;
-    for (const pk of state.pickups) {
-      if (pk.taken) continue;
-      if (Math.hypot(p.x - pk.x, p.y - pk.y) < 32) {
-        pk.taken = true;
-        if (pk.kind === 'cash') state.money += pk.amount;
-        else if (pk.kind === 'health') { state.hp = Math.min(100, state.hp + pk.amount); p.hp = state.hp; }
-        else if (pk.kind === 'ammo') { state.ammo = Math.min(240, state.ammo + pk.amount); p.ammo = state.ammo; }
-        events |= EVENTS.PICKUP;
+  car.x = fixed.x;
+  car.y = fixed.y;
+  // Ram traffic cars.
+  if (state.traffic && state.traffic.cars) {
+    for (const t of state.traffic.cars) {
+      if (dist(car.x, car.y, t.x, t.y) < 42 && Math.abs(car.speed) > 120) {
+        events |= EV.CRASH;
+        p.hp = Math.max(0, p.hp - 4);
+        car.speed *= 0.6;
+        t.speed = 0;
       }
     }
-    return events;
   }
-
-  function step(input, dt) {
-    dt = Math.max(0, Math.min(0.05, dt || 0.016));
-    let events = 0;
-    const p = state.player;
-    state.time += dt;
-    state.playTime += dt;
-    if (p.invuln > 0) p.invuln -= dt;
-    if (state.banner) {
-      state.banner.t -= dt;
-      if (state.banner.t <= 0) state.banner = null;
-    }
-    if (state.shootWantedCooldown > 0) state.shootWantedCooldown -= dt;
-
-    // Grand Prix countdown: ticks every step, wraps back to a full hour.
-    state.grandPrix.startsIn -= dt;
-    if (state.grandPrix.startsIn <= 0) {
-      state.grandPrix.startsIn = state.grandPrix.total;
-    }
-
-    // Aim follows the mouse in world space.
-    if (typeof input.aimX === 'number' && typeof input.aimY === 'number') {
-      p.aimAngle = Math.atan2(input.aimY - p.y, input.aimX - p.x);
-    }
-
-    // Combat input: shoot on foot, punch on foot.
-    if (!p.inCar && !p.inBoat) {
-      if (input.shooting) {
-        const a0 = state.ammo;
-        const pa0 = p.ammo;
-        firePlayerBullet(state, p.x, p.y, p.aimAngle);
-        const fired = state.ammo < a0 || p.ammo < pa0;
-        state.ammo = Math.min(state.ammo, p.ammo);
-        p.ammo = state.ammo;
-        if (fired) {
-          events |= EVENTS.SHOT;
-          if (state.shootWantedCooldown <= 0) {
-            addHeat(1);
-            state.shootWantedCooldown = 1.5;
-          }
-        }
-      }
-      if (input.actions & 8) {
-        meleeAttack(state);
-        events |= EVENTS.PUNCH;
-      }
-    }
-
-    // Movement branch: boat, car, or feet.
-    if (p.inBoat) {
-      stepBoating(state, input, dt);
-      p.x = p.boat ? p.boat.x : p.x;
-      p.y = p.boat ? p.boat.y : p.y;
-      if (p.boat) p.angle = p.boat.angle;
-    } else if (p.inCar) {
-      const crashed = driveCar(input, dt);
-      if (crashed) events |= EVENTS.CRASH;
-      if (ramPedestrians()) events |= EVENTS.CRASH;
-    } else {
-      moveOnFoot(input, dt);
-    }
-
-    // Traffic, combat, then the kill sweep: dead enemies are removed
-    // here and ONLY here, and each one counts exactly one kill.
-    stepTraffic(state.traffic, state.city, state.rng, dt);
-    const hpBefore = p.hp;
-    stepCombat(state, dt);
-    if (p.hp < hpBefore) events |= EVENTS.ENEMY_SHOT;
-    for (let i = state.combat.enemies.length - 1; i >= 0; i--) {
-      if (state.combat.enemies[i].hp <= 0) {
-        state.combat.enemies.splice(i, 1);
-        state.kills += 1;
-      }
-    }
-    // Keep the two hp/ammo mirrors in sync.
-    state.hp = p.hp;
-    state.ammo = p.ammo;
-
-    // Police read state.wanted; sync BEFORE stepping them.
-    if (state.police) state.police.wanted = state.wanted;
-    if (state.police) stepPolice(state, dt);
-    stepPolice2(state, dt);
-
-    // Side jobs: coins + taxi fares (returns its own events, if any).
-    const sjEvents = stepSideJobs(state, dt);
-    if (typeof sjEvents === 'number') events |= sjEvents;
-
-    // Wanted decay, owned by this module only.
-    stepWanted(dt);
-    if (state.police) state.police.wanted = state.wanted;
-
-    events |= collectPickups();
-    events |= updateMission(state);
-
-    // Busted: a cop standing on the player on foot for 1.6s.
-    if (!p.inCar && !p.inBoat && state.wanted > 0 && p.invuln <= 0) {
-      let close = false;
-      for (const cop of (state.police && state.police.cars) || []) {
-        if (Math.hypot(cop.x - p.x, cop.y - p.y) < 46) { close = true; break; }
-      }
-      if (close) {
-        state.bustTimer += dt;
-        if (state.bustTimer >= BUST_SECONDS) {
-          events |= EVENTS.BUSTED;
-          respawnPlayer('busted');
-        }
-      } else {
-        state.bustTimer = 0;
-      }
-    } else {
-      state.bustTimer = 0;
-    }
-
-    // Wasted: no health left.
-    if (p.hp <= 0) {
-      events |= EVENTS.DIED;
-      respawnPlayer('wasted');
-    }
-
-    // No mission running and story not done: start the next one after
-    // a short beat so the game keeps flowing.
-    if (!state.mission && !state.storyComplete && state.missionIndex < MISSIONS.length) {
-      state.nextMissionTimer += dt;
-      if (state.nextMissionTimer > 2) {
-        state.nextMissionTimer = 0;
-        startMission(state, state.missionIndex);
-      }
-    } else {
-      state.nextMissionTimer = 0;
-    }
-
-    // Camera follows the player; boats get a lookahead down their course.
-    let lookX = 0;
-    let lookY = 0;
-    if (p.inBoat && p.boat) {
-      lookX = Math.cos(p.boat.angle) * 120;
-      lookY = Math.sin(p.boat.angle) * 120;
-    }
-    state.camera.x = Math.max(640, Math.min(WORLD_WIDTH - 640, p.x + lookX));
-    state.camera.y = Math.max(400, Math.min(WORLD_HEIGHT - 400, p.y + lookY));
-
-    return events;
-  }
-
-  function reset() {
-    const fresh = createWorld((Math.random() * 0x7fffffff) | 0);
-    for (const k of Object.keys(state)) delete state[k];
-    Object.assign(state, fresh.state);
-  }
-
-  return { state, reset, step };
+  p.x = car.x;
+  p.y = car.y;
+  p.angle = car.angle;
+  return events;
 }
 
-// Snapshot for saves: plain values only, safe to JSON.
-export function saveSnapshot(state) {
-  return {
-    seed: state.seed,
-    money: state.money,
-    missionIndex: state.missionIndex,
-    missionsDone: state.missionsDone,
-    storyComplete: state.storyComplete,
-    kills: state.kills,
-    hp: state.hp,
-    ammo: state.ammo,
-    x: state.player.x,
-    y: state.player.y,
-    playTime: state.playTime,
-  };
+function stepWorld(state, input, dt) {
+  dt = Math.min(Math.max(dt || 0.016, 0), 0.05);
+  let events = 0;
+  const p = state.player;
+  state.playTime += dt;
+  // Grand Prix countdown ticks down; wraps to a fresh 3h when it hits 0.
+  state.grandPrix.startsIn -= dt;
+  if (state.grandPrix.startsIn <= 0) state.grandPrix.startsIn = 3 * 3600;
+  if (p.invuln > 0) p.invuln -= dt;
+
+  const actions = input.actions || 0;
+  // Aim follows the mouse in world coords.
+  if (typeof input.aimX === 'number' && typeof input.aimY === 'number') {
+    p.aimAngle = Math.atan2(input.aimY - p.y, input.aimX - p.x);
+  }
+
+  // Interact (E).
+  if (actions & ACTION.INTERACT) {
+    events |= tryInteract(state);
+  }
+  // Punch (Space on foot).
+  if ((actions & ACTION.PUNCH) && !p.inCar && !p.inBoat) {
+    meleeAttack(state);
+    events |= EV.PUNCH;
+  }
+  // Shoot (mouse held).
+  if (input.shooting && !p.inCar && !p.inBoat) {
+    const ammoBefore = p.ammo;
+    firePlayerBullet(state, p.x, p.y, p.aimAngle);
+    if (p.ammo < ammoBefore) events |= EV.SHOT;
+  }
+
+  // Movement.
+  if (p.inBoat) {
+    stepBoating(state, input, dt);
+  } else if (p.inCar) {
+    events |= stepDriving(state, input, dt);
+  } else {
+    stepOnFoot(state, input, dt);
+  }
+
+  // Combat step, then the kill sweep — ONLY here, exactly once.
+  const hpBeforeCombat = p.hp;
+  stepCombat(state, dt);
+  if (p.hp < hpBeforeCombat) events |= EV.ENEMY_SHOT;
+  const enemies = state.combat.enemies;
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    if (enemies[i].hp <= 0) {
+      enemies.splice(i, 1);
+      state.kills += 1;
+    }
+  }
+
+  // Police: sync wanted FIRST (world is the only writer of police.wanted),
+  // then step police AI, roadblocks + heli, side jobs, traffic.
+  state.police.wanted = state.wanted;
+  events |= stepPolice(state, dt) || 0;
+  stepPolice2(state, dt);
+  stepSideJobs(state, dt);
+  stepTraffic(state.traffic, state.city, state.rng, dt);
+
+  // Bust: a cop standing on the player for BUST_SECONDS.
+  if (state.wanted > 0 && state.police.cops) {
+    let touching = false;
+    for (const cop of state.police.cops) {
+      if (dist(p.x, p.y, cop.x, cop.y) < 30) { touching = true; break; }
+    }
+    if (touching && p.invuln <= 0) {
+      state.bustProgress += dt;
+      if (state.bustProgress >= BUST_SECONDS) {
+        state.bustProgress = 0;
+        state.money = Math.max(0, (state.money || 0) - 100);
+        respawnPlayer(state, 'busted');
+        return events | EV.BUSTED;
+      }
+    } else {
+      state.bustProgress = Math.max(0, state.bustProgress - dt * 2);
+    }
+  }
+
+  // Pickups by proximity.
+  for (let i = state.pickups.length - 1; i >= 0; i--) {
+    const pk = state.pickups[i];
+    if (dist(p.x, p.y, pk.x, pk.y) < 32) {
+      state.pickups.splice(i, 1);
+      if (pk.kind === 'cash') state.money = (state.money || 0) + (pk.value || 60);
+      else if (pk.kind === 'health') p.hp = Math.min(100, p.hp + (pk.value || 40));
+      else if (pk.kind === 'ammo') p.ammo = Math.min(240, p.ammo + (pk.value || 36));
+      events |= EV.PICKUP;
+    }
+  }
+
+  // Wanted bookkeeping: a rise (re)starts the decay clock.
+  if (state.wanted > state._prevWanted) {
+    state.wantedSince = state.playTime;
+    state.wantedLastDecay = state.playTime;
+  }
+  state._prevWanted = state.wanted;
+  stepWanted(state);
+
+  // Missions.
+  events |= updateMission(state);
+
+  // Death -> WASTED, respawn at the safehouse.
+  if (p.hp <= 0) {
+    respawnPlayer(state, 'wasted');
+    return events | EV.DIED;
+  }
+  return events;
 }
 
-// Restore a snapshot made by saveSnapshot. The active mission is
-// cleared; the game resumes at missionIndex.
-export function applySave(state, save) {
-  if (!save) return false;
-  state.money = save.money ?? state.money;
-  state.missionIndex = save.missionIndex ?? state.missionIndex;
-  state.missionsDone = save.missionsDone ?? state.missionsDone;
-  state.storyComplete = !!save.storyComplete;
-  state.kills = save.kills ?? state.kills;
-  state.hp = save.hp ?? state.hp;
-  state.ammo = save.ammo ?? state.ammo;
-  state.playTime = save.playTime ?? state.playTime;
-  state.player.x = save.x ?? state.player.x;
-  state.player.y = save.y ?? state.player.y;
-  state.player.hp = state.hp;
-  state.player.ammo = state.ammo;
-  state.player.inCar = false;
-  state.player.car = null;
-  state.player.inBoat = false;
-  state.player.boat = null;
-  state.mission = null;
-  state.crates = [];
-  state.wanted = 0;
-  state.wantedTimer = 0;
-  state.wantedDecays = 0;
-  if (state.police) state.police.wanted = 0;
-  return true;
-}
-
-// Wasted / busted: wake up at the Safehouse, full health, heat gone.
 export function respawnPlayer(state, reason) {
   const p = state.player;
-  const safe = state.city.landmarks.safehouse;
+  const safe = state.city && state.city.landmarks ? state.city.landmarks.safehouse : null;
   p.x = safe ? safe.x : 1420;
   p.y = safe ? safe.y : 1190;
   p.angle = -Math.PI / 2;
@@ -502,30 +371,63 @@ export function respawnPlayer(state, reason) {
   p.car = null;
   p.inBoat = false;
   p.boat = null;
-  p.speed = 0;
   p.invuln = 3;
-  state.hp = 100;
-  state.wanted = 0;
-  state.wantedTimer = 0;
-  state.wantedDecays = 0;
-  if (state.police) state.police.wanted = 0;
-  state.bustTimer = 0;
-  state.banner = { text: reason === 'busted' ? 'BUSTED!' : 'WASTED!', t: 2.5 };
+  if (reason === 'busted') state.wanted = 0;
+  if (state.police) state.police.bustTimer = 0;
+  state.bustProgress = 0;
+  return p;
 }
 
-// Wanted decay, exported for tests: first star falls ~12s after the
-// last heat, then one star every ~8s. Never call it from anywhere else.
-export function stepWanted(state, dt) {
-  if (state.wanted <= 0) {
-    state.wantedTimer = 0;
-    state.wantedDecays = 0;
-    return;
-  }
-  state.wantedTimer += dt;
-  const need = state.wantedDecays === 0 ? WANTED_DECAY_DELAY : WANTED_DECAY_EVERY;
-  if (state.wantedTimer >= need) {
-    state.wantedTimer = 0;
-    state.wantedDecays += 1;
-    state.wanted = Math.max(0, state.wanted - 1);
-  }
+export function saveSnapshot(state) {
+  return {
+    seed: state.seed,
+    money: state.money,
+    missionIndex: state.missionIndex,
+    missionsDone: state.missionsDone,
+    storyComplete: state.storyComplete,
+    kills: state.kills,
+    hp: state.player.hp,
+    ammo: state.player.ammo,
+    x: state.player.x,
+    y: state.player.y,
+    playTime: state.playTime,
+  };
 }
+
+export function applySave(state, save) {
+  if (!save) return false;
+  state.money = save.money ?? state.money;
+  state.missionsDone = save.missionsDone ?? 0;
+  state.storyComplete = !!save.storyComplete;
+  state.kills = save.kills ?? 0;
+  state.player.hp = save.hp ?? 100;
+  state.player.ammo = save.ammo ?? 48;
+  state.player.x = save.x ?? 1420;
+  state.player.y = save.y ?? 1230;
+  state.playTime = save.playTime ?? 0;
+  if (typeof save.missionIndex === 'number' && save.missionIndex >= 0) {
+    startMission(state, save.missionIndex);
+  } else {
+    state.missionIndex = -1;
+    state.missionStep = 0;
+  }
+  return true;
+}
+
+export function createWorld(seed) {
+  const api = {
+    state: initWorld(seed == null ? 1 : seed),
+    reset() {
+      const fresh = initWorld(api.state.seed + 1);
+      for (const k of Object.keys(api.state)) delete api.state[k];
+      Object.assign(api.state, fresh);
+    },
+    step(input, dt) {
+      return stepWorld(api.state, input || {}, dt);
+    },
+  };
+  return api;
+}
+
+// Re-exported for main.js / shots.js convenience.
+export { MISSIONS, startMission, updateMission };

@@ -1,68 +1,55 @@
-// Solmar City — story missions M6–M8 (v2).
-// Written from v2-spec.md only. Appended to MISSIONS by
-// registerStoryMissions(); calling it twice changes nothing.
-import { MISSIONS } from './missions.js';
-import { spawnGang } from './combat.js';
+// missions2.js — Solmar City story missions M6–M8.
+// Written from the v2 spec only. Uses only proven objective kinds.
+import { MISSIONS, spawnMissionGang } from './missions.js';
 
-const EXTRA = [
+const V2_MISSIONS = [
   {
-    id: 'M6',
+    id: 'm6',
     title: 'Harbor Lights',
-    briefing: 'Take a boat out to Gull Island at dusk, then bring her back to the Marina.',
+    briefing: 'Sail the harbor at night: Docks, out to Gull Island, home to the Marina.',
     reward: 900,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Reach Solmar Docks' },
-      { kind: 'board', text: 'Board a boat' },
-      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
-      { kind: 'reach', key: 'marina', text: 'Return to Solmar Marina' },
+      { kind: 'reach', key: 'docks', text: 'Reach the Solmar Docks' },
+      { kind: 'board', text: 'Board a boat (press E near one)' },
+      { kind: 'reach', key: 'island', text: 'Reach Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Reach the Solmar Marina' },
     ],
   },
   {
-    id: 'M7',
+    id: 'm7',
     title: 'On Air',
-    briefing: 'The Static Boys took over Solmar Radio. Clear the tower, then get home safe.',
+    briefing: 'The Static Boys run pirate radio from the tower. Shut them down.',
     reward: 1200,
     objectives: [
-      { kind: 'reach', key: 'radio', text: 'Reach Solmar Radio' },
+      { kind: 'reach', key: 'radio', text: 'Reach Solmar Radio tower' },
       { kind: 'defeat', count: 3, text: 'Defeat 3 Static Boys' },
-      { kind: 'reach', key: 'safehouse', text: 'Reach Mara\u2019s Safehouse' },
+      { kind: 'reach', key: 'safehouse', text: 'Reach Mara\'s Safehouse' },
     ],
   },
   {
-    id: 'M8',
+    id: 'm8',
     title: 'The Grand Finale',
-    briefing: 'One last job: the Bank vault, six guards, and a clean getaway. End it here.',
+    briefing: 'The bank, the vault, six guards, and one clean getaway. The big one.',
     reward: 5000,
     objectives: [
-      { kind: 'reach', key: 'bank', text: 'Reach Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault (4 stars)' },
+      { kind: 'reach', key: 'bank', text: 'Reach the Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
       { kind: 'defeat', count: 6, text: 'Defeat 6 guards' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\u2019s Safehouse' },
+      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\'s Safehouse' },
     ],
   },
 ];
 
-let registered = false;
-
-// Append M6–M8 to MISSIONS. Idempotent: a second call is a no-op.
+// Idempotent: appends M6–M8 once, even if called again.
 export function registerStoryMissions() {
-  if (registered) return;
-  registered = true;
-  for (const m of EXTRA) {
-    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
+  for (const def of V2_MISSIONS) {
+    if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
   }
+  return MISSIONS;
 }
 
-// Gang spawns for a v2 mission: the defeat crew waits at the mission's
-// first reach landmark (M7: 3 Static Boys at the radio tower;
-// M8: 6 guards at the bank). Same spawn rule missions.js uses at
-// mission start; kept as its own helper for the v2 wiring.
+// Gang spawn for M7/M8 (and any later mission with a defeat objective):
+// the gang spawns around the mission's first reach landmark when it starts.
 export function setupV2Mission(state, def) {
-  const defeat = def.objectives.find((o) => o.kind === 'defeat');
-  if (!defeat) return;
-  const reach = def.objectives.find((o) => o.kind === 'reach' || o.kind === 'escape');
-  if (!reach) return;
-  const lm = state.city && state.city.landmarks ? state.city.landmarks[reach.key] : null;
-  if (!lm) return;
-  spawnGang(state, lm.x, lm.y, defeat.count || 0);
+  return spawnMissionGang(state, def);
 }

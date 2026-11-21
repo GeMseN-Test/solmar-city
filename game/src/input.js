@@ -1,9 +1,7 @@
-// Solmar City — keyboard + mouse input.
-// Written from v2-spec.md only. Keys: Enter confirm, P/Esc pause,
-// E interact, Space punch (on foot) / handbrake (while driving),
-// M mute, Q radio. Mouse: position, held, and click point in canvas
-// pixels. createInput() wires the listeners and returns the live
-// input object main.js reads every frame.
+// input.js — Solmar City keyboard + mouse input.
+// Written from the v2 spec only.
+// Keys: Enter confirm, P/Esc pause, E interact, Space punch/handbrake,
+// M mute, Q radio. Mouse: { x, y, down, clicked, clickX, clickY }.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_INTERACT = 4;
@@ -11,7 +9,16 @@ export const ACTION_PUNCH = 8;
 export const ACTION_MUTE = 16;
 export const ACTION_RADIO = 32;
 
-const ACTION_KEYS = {
+export const ACTION = {
+  CONFIRM: ACTION_CONFIRM,
+  PAUSE: ACTION_PAUSE,
+  INTERACT: ACTION_INTERACT,
+  PUNCH: ACTION_PUNCH,
+  MUTE: ACTION_MUTE,
+  RADIO: ACTION_RADIO,
+};
+
+const KEY_TO_ACTION = {
   Enter: ACTION_CONFIRM,
   KeyP: ACTION_PAUSE,
   Escape: ACTION_PAUSE,
@@ -23,36 +30,69 @@ const ACTION_KEYS = {
 
 export function createInput(canvas) {
   const input = {
-    keys: new Set(),
+    keys: {},
     mouse: { x: 0, y: 0, down: false, clicked: false, clickX: 0, clickY: 0 },
-    actions: 0,
-    // Space held while driving = handbrake. On foot the same key
-    // punches (main.js only asks when it matters).
+    _pressed: 0, // edge-triggered action bits waiting to be consumed
+    _held: {}, // currently held action bits (for held keys)
+
+    // Edge-triggered actions pressed since the last call. Consumes them.
+    actions() {
+      const a = this._pressed;
+      this._pressed = 0;
+      return a;
+    },
+
+    // Space held while driving = handbrake.
     handbrake() {
-      return this.keys.has('Space');
+      return !!this.keys.Space;
+    },
+
+    // Held movement keys: WASD + arrows.
+    moveVector() {
+      let mx = 0;
+      let my = 0;
+      if (this.keys.KeyA || this.keys.ArrowLeft) mx -= 1;
+      if (this.keys.KeyD || this.keys.ArrowRight) mx += 1;
+      if (this.keys.KeyW || this.keys.ArrowUp) my -= 1;
+      if (this.keys.KeyS || this.keys.ArrowDown) my += 1;
+      return { mx, my };
+    },
+
+    // Steering / throttle while driving: A/D steer, W/S throttle.
+    driveVector() {
+      let steer = 0;
+      let throttle = 0;
+      if (this.keys.KeyA || this.keys.ArrowLeft) steer -= 1;
+      if (this.keys.KeyD || this.keys.ArrowRight) steer += 1;
+      if (this.keys.KeyW || this.keys.ArrowUp) throttle += 1;
+      if (this.keys.KeyS || this.keys.ArrowDown) throttle -= 1;
+      return { steer, throttle };
+    },
+
+    get shooting() {
+      return this.mouse.down;
+    },
+    get running() {
+      return !!(this.keys.ShiftLeft || this.keys.ShiftRight);
     },
   };
 
   function onKeyDown(e) {
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
-      e.preventDefault();
+    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+    if (!e.repeat) {
+      const bit = KEY_TO_ACTION[e.code];
+      if (bit) input._pressed |= bit;
     }
-    if (e.repeat) return;
-    input.keys.add(e.code);
-    const bit = ACTION_KEYS[e.code];
-    if (bit) input.actions |= bit;
+    input.keys[e.code] = true;
   }
-
   function onKeyUp(e) {
-    input.keys.delete(e.code);
+    input.keys[e.code] = false;
   }
-
   function onMouseMove(e) {
-    const rect = canvas.getBoundingClientRect();
-    input.mouse.x = e.clientX - rect.left;
-    input.mouse.y = e.clientY - rect.top;
+    const r = canvas.getBoundingClientRect();
+    input.mouse.x = e.clientX - r.left;
+    input.mouse.y = e.clientY - r.top;
   }
-
   function onMouseDown(e) {
     onMouseMove(e);
     input.mouse.down = true;
@@ -60,7 +100,6 @@ export function createInput(canvas) {
     input.mouse.clickX = input.mouse.x;
     input.mouse.clickY = input.mouse.y;
   }
-
   function onMouseUp() {
     input.mouse.down = false;
   }
@@ -71,44 +110,12 @@ export function createInput(canvas) {
   canvas.addEventListener('mousedown', onMouseDown);
   window.addEventListener('mouseup', onMouseUp);
 
+  input.destroy = () => {
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
+    canvas.removeEventListener('mousemove', onMouseMove);
+    canvas.removeEventListener('mousedown', onMouseDown);
+    window.removeEventListener('mouseup', onMouseUp);
+  };
   return input;
-}
-
-// Read + clear the one-shot action bits for this frame.
-export function consumeActions(input) {
-  const a = input.actions;
-  input.actions = 0;
-  return a;
-}
-
-// Space held while driving = handbrake (standalone form).
-export function handbrake(input) {
-  return !!input.keys && input.keys.has('Space');
-}
-
-// WASD / arrow movement vector, normalized, in screen space
-// (y down). main.js turns it into world movement.
-export function moveVector(input) {
-  const k = input.keys;
-  let x = 0;
-  let y = 0;
-  if (k.has('KeyA') || k.has('ArrowLeft')) x -= 1;
-  if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
-  if (k.has('KeyW') || k.has('ArrowUp')) y -= 1;
-  if (k.has('KeyS') || k.has('ArrowDown')) y += 1;
-  const len = Math.hypot(x, y);
-  if (len > 0) { x /= len; y /= len; }
-  return { x, y };
-}
-
-// Driving pedals from the same keys: W/S throttle, A/D steering.
-export function driveVector(input) {
-  const k = input.keys;
-  let throttle = 0;
-  let steer = 0;
-  if (k.has('KeyW') || k.has('ArrowUp')) throttle += 1;
-  if (k.has('KeyS') || k.has('ArrowDown')) throttle -= 1;
-  if (k.has('KeyA') || k.has('ArrowLeft')) steer -= 1;
-  if (k.has('KeyD') || k.has('ArrowRight')) steer += 1;
-  return { throttle, steer };
 }

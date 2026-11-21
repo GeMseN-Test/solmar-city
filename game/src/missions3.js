@@ -1,44 +1,46 @@
-// Solmar City — story missions M9–M10 (v2 retry).
-// Written from v2-spec.md only. Appended to MISSIONS by
-// registerMissions3(); calling it twice changes nothing.
-import { MISSIONS } from './missions.js';
+// missions3.js — Solmar City story missions M9–M10.
+// Written from the v2-retry spec only. Uses only proven objective kinds.
+import { MISSIONS, spawnMissionGang } from './missions.js';
 
-const EXTRA = [
+const V3_MISSIONS = [
   {
-    id: 'M9',
+    id: 'm9',
     title: 'Night Shift at the Docks',
-    briefing: 'The Harbor Rats run the Docks after dark. Clear them out, take a boat to Gull Island, and come home by the Marina.',
+    briefing: 'The Harbor Rats own the night docks. Clear them out, then sail the island run.',
     reward: 1500,
     objectives: [
-      { kind: 'reach', key: 'docks', text: 'Reach Solmar Docks' },
+      { kind: 'reach', key: 'docks', text: 'Reach the Solmar Docks' },
       { kind: 'defeat', count: 4, text: 'Defeat 4 Harbor Rats' },
-      { kind: 'board', text: 'Board a boat' },
-      { kind: 'reach', key: 'island', text: 'Sail to Gull Island' },
-      { kind: 'reach', key: 'marina', text: 'Return to Solmar Marina' },
+      { kind: 'board', text: 'Board a boat (press E near one)' },
+      { kind: 'reach', key: 'island', text: 'Reach Gull Island' },
+      { kind: 'reach', key: 'marina', text: 'Reach the Solmar Marina' },
     ],
   },
   {
-    id: 'M10',
+    id: 'm10',
     title: 'King of Solmar',
-    briefing: 'Own the turf, rob the Bank, and walk away clean. That is how you become King of Solmar.',
+    briefing: 'Take the turf, rob the bank, vanish. That is how you become king.',
     reward: 7500,
     objectives: [
-      { kind: 'reach', key: 'turf', text: 'Reach Vipers\u2019 Turf' },
+      { kind: 'reach', key: 'turf', text: 'Reach the Vipers\' Turf' },
       { kind: 'defeat', count: 6, text: 'Defeat 6 Vipers' },
-      { kind: 'reach', key: 'bank', text: 'Reach Grand Solmar Bank' },
-      { kind: 'interact', key: 'bank', text: 'Grab the vault (4 stars)' },
-      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\u2019s Safehouse' },
+      { kind: 'reach', key: 'bank', text: 'Reach the Grand Solmar Bank' },
+      { kind: 'interact', key: 'bank', text: 'Grab the vault (press E at the bank)' },
+      { kind: 'escape', key: 'safehouse', text: 'Escape to Mara\'s Safehouse' },
     ],
   },
 ];
 
-let registered = false;
-
-// Append M9–M10 to MISSIONS. Idempotent: a second call is a no-op.
-export function registerMissions3() {
-  if (registered) return;
-  registered = true;
-  for (const m of EXTRA) {
-    if (!MISSIONS.find((x) => x.id === m.id)) MISSIONS.push(m);
+// Idempotent: appends M9–M10 once, even if called again.
+export function registerStoryMissions() {
+  for (const def of V3_MISSIONS) {
+    if (!MISSIONS.some((m) => m.id === def.id)) MISSIONS.push(def);
   }
+  return MISSIONS;
+}
+
+// Same gang-spawn contract as missions2: defeat gang spawns around the
+// mission's first reach landmark when the mission starts.
+export function setupV2Mission(state, def) {
+  return spawnMissionGang(state, def);
 }

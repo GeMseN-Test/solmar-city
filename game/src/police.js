@@ -1,15 +1,14 @@
-// police.js — the SCPD (Solmar City Police Department).
-// Black-and-white cruisers and foot cops. When the player has stars
-// they chase: cruisers ram, foot cops close in and grab. Stand close
-// to the player for bustSeconds (1.6s) and the player is BUSTED.
-// Wanted level is READ from state.wanted here — decay lives only in
-// world.stepWanted, never in this module. HUD label is always SCPD.
+// police.js — SCPD cruisers and foot cops: chase, ram, bust.
+// state.police = { cars, cops, bustTimer, spawnCooldown, siren }.
+// There is NO `wanted` field here on purpose: wanted lives ONLY in
+// state.wanted, and world.js syncs it before calling stepPolice.
+// police.js NEVER decays wanted — decay happens only in world.stepWanted.
 
 import { WANTED } from './config.js';
-import { clamp, dist, turnToward } from './util.js';
+import { randRange } from './random.js';
+import { clamp, dist } from './util.js';
 
-export const POLICE_LABEL = 'SCPD';
-export const POLICE_NAME = 'Solmar City Police Department';
+export const BUSTED_EVENT = 64;
 
 export function createPolice() {
   return {
@@ -21,167 +20,134 @@ export function createPolice() {
   };
 }
 
-function spawnCruiser(state, x, y) {
-  const car = {
+function spawnCruiser(state, rng, nearX, nearY) {
+  const city = state.city;
+  let x = nearX + 500;
+  let y = nearY;
+  if (city && city.nearestRoadPoint) {
+    const pt = city.nearestRoadPoint(x, y);
+    x = pt.x;
+    y = pt.y;
+  }
+  return {
     kind: 'police',
-    roadblock: false,
-    x, y,
+    x,
+    y,
     angle: 0,
     speed: 0,
-    cruise: 430,
-    color: '#1c1c22',
-    model: 'cruiser',
-    ix: 0, iy: 0,
-    fromIx: 0, fromIy: 0,
-    nextIx: 0, nextIy: 0,
-    wait: 0,
-    wobble: 0,
+    roadblock: false,
+    color: '#1c2733',
+    sirenPhase: rng ? randRange(rng, 0, Math.PI * 2) : 0,
   };
-  state.police.cars.push(car);
-  return car;
 }
 
-function spawnFootCop(state, x, y) {
-  const cop = {
-    x, y,
+function spawnCop(state, rng, nearX, nearY) {
+  return {
+    kind: 'cop',
+    x: nearX + (rng ? randRange(rng, -260, 260) : 200),
+    y: nearY + (rng ? randRange(rng, -260, 260) : 200),
     angle: 0,
-    speed: 150,
-    shirt: '#1c2f5e',
+    speed: 200,
+    shirt: '#1c2733',
     skin: '#e8b98a',
-    hp: 100,
   };
-  state.police.cops.push(cop);
-  return cop;
-}
-
-// How many cruisers the current wanted level calls for.
-export function cruisersWanted(wanted) {
-  if (wanted <= 0) return 0;
-  if (wanted === 1) return 1;
-  if (wanted === 2) return 2;
-  if (wanted === 3) return 3;
-  return 4;
 }
 
 export function stepPolice(state, dt) {
-  const step = dt || 0.016;
+  const total = Math.max(0.001, dt || 0.016);
+  const n = Math.max(1, Math.ceil(total / 0.05));
+  const sub = total / n;
+  let events = 0;
+  for (let i = 0; i < n; i += 1) events |= stepPoliceOnce(state, sub);
+  return events;
+}
+
+function stepPoliceOnce(state, step) {
   const police = state.police;
   const p = state.player;
-  if (!police || !p) return;
+  if (!police || !p) return 0;
   const wanted = state.wanted || 0;
+  const rng = state.rng;
 
-  // Keep the cruiser count in line with the wanted level. Roadblock
-  // cruisers (police2) are owned by police2 and never removed here.
-  const patrol = police.cars.filter((c) => !c.roadblock);
-  const need = cruisersWanted(wanted);
-  if (patrol.length < need) {
-    police.spawnCooldown -= step;
-    if (police.spawnCooldown <= 0) {
-      police.spawnCooldown = 1.2;
-      // Spawn off-screen-ish: on a road behind the player's view.
-      const a = Math.random() * Math.PI * 2;
-      const sx = clamp(p.x + Math.cos(a) * 620, 60, 2820);
-      const sy = clamp(p.y + Math.sin(a) * 620, 60, 2000);
-      const road = state.city ? state.city.nearestRoadPoint(sx, sy) : { x: sx, y: sy };
-      spawnCruiser(state, road.x, road.y);
+  police.siren = wanted > 0;
+
+  // Spawn: cruisers up to wanted, foot cops from 2 stars up.
+  police.spawnCooldown -= step;
+  if (wanted > 0 && police.spawnCooldown <= 0) {
+    police.spawnCooldown = 2;
+    const cruisers = police.cars.filter((c) => !c.roadblock).length;
+    if (cruisers < Math.min(wanted, 3)) {
+      police.cars.push(spawnCruiser(state, rng, p.x, p.y));
     }
-  } else if (patrol.length > need) {
-    // Wanted dropped: the furthest patrol cruiser peels off.
-    let worst = null;
-    let worstD = -1;
-    for (const c of patrol) {
-      const d = dist(c.x, c.y, p.x, p.y);
-      if (d > worstD) { worstD = d; worst = c; }
-    }
-    if (worst) {
-      const idx = police.cars.indexOf(worst);
-      if (idx >= 0) police.cars.splice(idx, 1);
+    if (wanted >= 2 && police.cops.length < wanted - 1) {
+      police.cops.push(spawnCop(state, rng, p.x, p.y));
     }
   }
 
-  // Foot cops only appear at 2+ stars and only on foot chases.
-  if (wanted >= 2 && police.cops.length < wanted - 1 && p.hp > 0) {
-    police.spawnCooldown -= step;
-    if (police.spawnCooldown <= 0) {
-      police.spawnCooldown = 2.5;
-      const a = Math.random() * Math.PI * 2;
-      spawnFootCop(state, p.x + Math.cos(a) * 320, p.y + Math.sin(a) * 320);
-    }
-  }
-  if (wanted === 0 && police.cops.length > 0) {
-    police.cops.length = 0;
+  // Despawn everything when the heat is off.
+  if (wanted === 0) {
+    police.cars = police.cars.filter((c) => c.roadblock);
+    police.cops = [];
     police.bustTimer = 0;
+    return 0;
   }
 
-  // --- Cruisers: chase and ram ---------------------------------------
-  let anyChasing = false;
+  let events = 0;
+
+  // Cruisers chase the player; roadblock cars stay parked.
   for (const car of police.cars) {
-    if (car.roadblock) continue; // police2 owns roadblocks; they park.
-    if (wanted <= 0) continue;
-    anyChasing = true;
+    if (car.roadblock) continue;
     const d = dist(car.x, car.y, p.x, p.y);
-    const toPlayer = Math.atan2(p.y - car.y, p.x - car.x);
-    car.angle = turnToward(car.angle, toPlayer, 2.2 * step);
-    // Faster than traffic, slower than a full-speed getaway car.
-    const targetSpeed = d > 420 ? car.cruise : car.cruise * 0.8;
-    if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + 520 * step);
-    else car.speed = Math.max(targetSpeed, car.speed - 400 * step);
+    const wantAngle = Math.atan2(p.y - car.y, p.x - car.x);
+    let diff = wantAngle - car.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    const topSpeed = 400 + wanted * 22;
+    car.speed += (topSpeed - car.speed) * Math.min(1, 1.5 * step);
+    car.angle += clamp(diff, -2.4 * step, 2.4 * step);
     car.x += Math.cos(car.angle) * car.speed * step;
     car.y += Math.sin(car.angle) * car.speed * step;
-    if (state.city && state.city.resolveCircle) state.city.resolveCircle(car, 20);
-    car.x = clamp(car.x, 30, 2850);
-    car.y = clamp(car.y, 30, 2070);
-    // Ram: a hard hit at close range hurts and shoves the player.
-    if (d < 34 && p.hp > 0 && (!p.invuln || p.invuln <= 0)) {
-      p.hp = Math.max(0, p.hp - 18 * step * 3);
-      if (state.events != null) state.events |= 8; // CRASH
+    car.sirenPhase += step * 6;
+    // Ram: bump the player when a cruiser touches them.
+    if (d < 34 && (!p.invuln || p.invuln <= 0) && !p.inBoat) {
+      p.hp = Math.max(0, (p.hp || 100) - 9);
+      p.invuln = 0.6;
     }
+    car.x = clamp(car.x, 20, 2860);
+    car.y = clamp(car.y, 20, 2080);
   }
-  police.siren = anyChasing;
 
-  // --- Foot cops: run the player down ---------------------------------
+  // Foot cops run at the player; hold on and the bust timer fills.
+  let copTouching = false;
   for (const cop of police.cops) {
     const d = dist(cop.x, cop.y, p.x, p.y);
-    const toPlayer = Math.atan2(p.y - cop.y, p.x - cop.x);
-    cop.angle = toPlayer;
-    if (d > 26) {
-      cop.x += Math.cos(cop.angle) * cop.speed * step;
-      cop.y += Math.sin(cop.angle) * cop.speed * step;
+    if (d > WANTED.copChaseRadius) {
+      // Too far: walk back toward the player slowly, or stand.
+      cop.x += Math.cos(Math.atan2(p.y - cop.y, p.x - cop.x)) * cop.speed * 0.4 * step;
+      cop.y += Math.sin(Math.atan2(p.y - cop.y, p.x - cop.x)) * cop.speed * 0.4 * step;
+      continue;
     }
-    if (state.city && state.city.resolveCircle) state.city.resolveCircle(cop, 10);
+    const a = Math.atan2(p.y - cop.y, p.x - cop.x);
+    cop.angle = a;
+    cop.x += Math.cos(a) * cop.speed * step;
+    cop.y += Math.sin(a) * cop.speed * step;
+    if (d < 26 && !p.inBoat && !p.inCar) copTouching = true;
+    cop.x = clamp(cop.x, 20, 2860);
+    cop.y = clamp(cop.y, 20, 2080);
   }
 
-  // --- Bust: a cop car or foot cop glued to the player -----------------
-  const bustRange = 42;
-  let touching = false;
-  if (wanted > 0 && p.hp > 0 && !p.inBoat) {
-    for (const car of police.cars) {
-      if (dist(car.x, car.y, p.x, p.y) < bustRange && Math.abs(car.speed) < 120) touching = true;
-    }
-    for (const cop of police.cops) {
-      if (dist(cop.x, cop.y, p.x, p.y) < bustRange) touching = true;
-    }
-  }
-  if (touching) {
+  if (copTouching) {
     police.bustTimer += step;
     if (police.bustTimer >= WANTED.bustSeconds) {
       police.bustTimer = 0;
       state.busted = true;
-      if (state.events != null) state.events |= 64; // BUSTED
+      events |= BUSTED_EVENT;
     }
   } else {
-    police.bustTimer = 0;
+    police.bustTimer = Math.max(0, police.bustTimer - step * 2);
   }
-  void clamp;
+
+  return events;
 }
 
-// Alias for callers that use the update* naming.
-export const updatePolice = stepPolice;
-
-export default {
-  createPolice,
-  stepPolice,
-  updatePolice,
-  cruisersWanted,
-  POLICE_LABEL,
-};
+export default { createPolice, stepPolice, BUSTED_EVENT };

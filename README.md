@@ -1,72 +1,51 @@
-# Solmar City — open-world crime game: 12 missions, 5 radio stations, 6 boats, SCPD, Grand Prix countdown
+# Solmar City — 12 Story Missions, SCPD Police & Grand Prix Countdown
 
-![Solmar City](https://make.fun/badge/gta6-01.svg)
-![Solmar City](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city.svg)
-![Solmar City rank](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/rank.svg)
-![Solmar City reward](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/reward.svg)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![Solmar City](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city.svg)](https://make.fun/bounty/gta6-01)
+[![Rank](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/rank.svg)](https://make.fun/bounty/gta6-01)
+[![Reward](https://make.fun/badge/gta6-01/GeMseN-Test/solmar-city/reward.svg)](https://make.fun/bounty/gta6-01)
 
-Built for the **Make GTA 6** bounty: https://make.fun/bounty/gta6-01
+An original 2D top-down open-world crime game built for the [make.fun "Make GTA 6" bounty](https://make.fun/bounty/gta6-01). No Rockstar assets — the city, the story, and the sound are all ours. You are Mara Voss. Take Solmar City, one mission at a time.
 
-Solmar City is a top-down open-world crime game in the browser. You are a
-small-time hustler in a fictional coastal city. Steal cars, outrun the
-**SCPD** (Solmar City Police Department), rob the bank vault, sail the
-harbor, and work your way through **12 story missions worth $33,600** —
-from "Hot Wheels" to the final job, "The Solmar Crown". While you play, the
-**Grand Prix countdown** ticks down in the corner of the screen.
+## What is in v2
 
-## What is in the game
+- **12 story missions** — from Hot Wheels ($200) to The Solmar Crown ($10,000). Total payout **$33,600**; starting from $50, finishing all twelve leaves you with **$33,650**.
+- **SCPD police** — the Solmar City Police Department chases you with cruisers and foot cops, sets up **roadblocks at 3+ stars**, and sends a **police helicopter with a spotlight at 4–5 stars**.
+- **Grand Prix countdown** — a live HH:MM:SS countdown to the big race, always on the HUD.
+- **5 radio stations** — SOLMAR FM, HARBOR 98, NEON NIGHTS, PALM DRIVE, MIDNIGHT DRIVE. Press Q to tune. All synthesized live with WebAudio, no audio files.
+- **6 boats** — sail the harbor, board with E, step ashore with E again. Includes a red speedboat and a yellow jetski, the fastest ride in the game.
+- **Taxi fares** — pick up waving passengers while driving and deliver them for $80–$150.
+- **12 Solmar Coins** — hidden gold coins around the streets, +$25 each.
+- **Handbrake** — hold Space while driving for hard decel and a slide.
+- **Saves** — progress autosaves; continue from the title screen.
+- **Live minimap, wanted stars, health/ammo/cash HUD**, pause, WASTED/BUSTED respawn at the Safehouse.
 
-- **12 story missions ($34,650 total)** — car theft, crate runs, turf wars,
-  vault heists, boat trips to Gull Island, and a finale at the bank.
-- **5 in-game radio stations** — SOLMAR FM, HARBOR 98, NEON NIGHTS,
-  PALM DRIVE, MIDNIGHT DRIVE. Press **Q** to change station; all music is
-  synthesized live with WebAudio, no audio files.
-- **6 drivable boats** — three moored boats, a red speedboat, a white
-  yacht, and a yellow jetski (the fastest). Press **E** near a boat to
-  board it, **E** again to step ashore on the beach.
-- **SCPD police that escalate** — wanted stars from 1 to 5, roadblocks at
-  3+ stars, and a police helicopter with a spotlight at 4–5 stars.
-- **Grand Prix countdown** — a live HH:MM:SS timer in the HUD counting
-  down to the next Grand Prix, then wrapping to the next one.
-- **Side jobs** — taxi fares while driving ($80–$150 a ride) and
-  **12 hidden Solmar Coins** worth $25 each, tracked in the HUD.
-- **Driving feel** — handbrake with **Space** while driving (hard stop +
-  slide), five car models (sedan, van, taxi, truck, sport), traffic,
-  pedestrians, pickups, and a live minimap.
-- **Save / continue** — progress autosaves to the browser; continue from
-  the title screen.
-
-## Missions
+## The 12 missions
 
 | # | Mission | Payout |
 |---|---------|-------:|
-| M1 | Hot Wheels | $200 |
-| M2 | Harbor Run | $400 |
-| M3 | Heat Wave | $600 |
-| M4 | Turf War | $800 |
-| M5 | The Solmar Score | $2,500 |
-| M6 | Harbor Lights | $900 |
-| M7 | On Air | $1,200 |
-| M8 | The Grand Finale | $5,000 |
-| M9 | Night Shift at the Docks | $1,500 |
-| M10 | King of Solmar | $7,500 |
-| M11 | Midnight Run | $3,000 |
-| M12 | The Solmar Crown | $10,000 |
+| 1 | Hot Wheels | $200 |
+| 2 | Harbor Run | $400 |
+| 3 | Heat Wave | $600 |
+| 4 | Turf War | $800 |
+| 5 | The Solmar Score | $2,500 |
+| 6 | Harbor Lights | $900 |
+| 7 | On Air | $1,200 |
+| 8 | The Grand Finale | $5,000 |
+| 9 | Night Shift at the Docks | $1,500 |
+| 10 | King of Solmar | $7,500 |
+| 11 | Midnight Run | $3,000 |
+| 12 | The Solmar Crown | $10,000 |
 | | **Total** | **$33,600** |
 
 ## Controls
 
-| Key | Action |
-|-----|--------|
-| WASD / arrows | Move / drive |
-| Mouse | Aim, click to shoot |
-| Shift | Run |
-| E | Interact — steal car, board boat, grab vault, grab crate |
-| Space | Punch (on foot) / handbrake (while driving) |
-| Q | Change radio station |
-| M | Mute |
-| P / Esc | Pause |
-| Enter | Confirm / start |
+- **WASD / arrows** — move (on foot) / drive (in a car)
+- **Mouse** — aim, click to shoot
+- **E** — interact: steal a car, board a boat, grab the vault, pick up a crate
+- **Space** — punch on foot, handbrake while driving
+- **Q** — cycle radio station
+- **M** — mute, **P / Esc** — pause, **Enter** — confirm
 
 ## Run it
 
@@ -74,15 +53,15 @@ from "Hot Wheels" to the final job, "The Solmar Crown". While you play, the
 node serve.ts
 ```
 
-Then open http://localhost:8080 — the game is pure HTML + JavaScript
-modules, no build step, no dependencies.
+Then open http://localhost:8080 — no build step, no network, no install.
 
-## Screenshots
+## Tech
 
-Four staged shots (`shots.json`): title screen, driving downtown, a
-4-star SCPD chase with the helicopter, and M6 "Harbor Lights" in a boat
-on the harbor with the radio on.
+Pure JavaScript + HTML5 Canvas, one ES module per job under `game/src/`
+(world, city, combat, police, police2, boats, radio, sidejobs, traffic,
+missions, render, input, shots, save, audio, random, util, config).
+Screenshots are staged from real game states via `?shot=city|chase|start|harbor`.
 
 ## License
 
-SPDX-License-Identifier: MIT
+MIT — see [LICENSE](LICENSE).

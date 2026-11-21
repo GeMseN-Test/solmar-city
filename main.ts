@@ -1,37 +1,54 @@
-// main.ts — package Solmar City for make.fun.
-// Run with: node main.ts
-// Copies game/ + screenshots/ into the output dir ($OUTPUT_DIR, or
-// /output when unset) and writes dossier.json there, built from
-// vendor/makefun-game.ts buildDossier(repoRoot, { text_max_bytes }).
-//
-// Modules in this build (20): random, util, config, city, save, audio,
-// combat, radio, boats, traffic, police, police2, sidejobs, missions,
-// missions2, missions3, missions4, world, render, shots, input, main,
-// plus the index page, serve.ts and this packager.
+// main.ts — make.fun hand-in entrypoint (run with node).
+// Copies game/ + screenshots/ to the output dir and writes dossier.json
+// from buildDossier(repoRoot, { text_max_bytes: 163840 }).
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = resolve(fileURLToPath(new URL('.', import.meta.url)));
-const outDir = process.env.OUTPUT_DIR || '/output';
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR || process.env.OUTPUT_DIR || '/output';
 
-function copyIfPresent(src, dest) {
-  if (!existsSync(src)) return false;
-  cpSync(src, dest, { recursive: true });
-  return true;
+async function copyDir(src, dest) {
+  await fs.promises.mkdir(dest, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyDir(from, to);
+    } else if (entry.isFile()) {
+      await fs.promises.copyFile(from, to);
+    }
+  }
 }
 
-mkdirSync(outDir, { recursive: true });
-copyIfPresent(join(repoRoot, 'game'), join(outDir, 'game'));
-copyIfPresent(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'));
-// Ship the README + LICENSE alongside the game so the entry is
-// self-describing even when the dossier is read on its own.
-copyIfPresent(join(repoRoot, 'README.md'), join(outDir, 'README.md'));
-copyIfPresent(join(repoRoot, 'LICENSE'), join(outDir, 'LICENSE'));
+async function main() {
+  await fs.promises.mkdir(outputDir, { recursive: true });
+  const gameSrc = path.join(repoRoot, 'game');
+  const shotsSrc = path.join(repoRoot, 'screenshots');
+  await copyDir(gameSrc, path.join(outputDir, 'game'));
+  try {
+    await fs.promises.access(shotsSrc);
+    await copyDir(shotsSrc, path.join(outputDir, 'screenshots'));
+  } catch (e) {
+    // screenshots/ is optional before the first capture run.
+  }
+  const dossier = await buildDossier(repoRoot, { text_max_bytes: 163840 });
+  const out = path.join(outputDir, 'dossier.json');
+  if (typeof dossier === 'string') {
+    await fs.promises.writeFile(out, dossier, 'utf8');
+  } else if (dossier instanceof Uint8Array) {
+    await fs.promises.writeFile(out, Buffer.from(dossier));
+  } else {
+    await fs.promises.writeFile(out, JSON.stringify(dossier), 'utf8');
+  }
+  console.log('dossier written to ' + out);
+  console.log('game + screenshots copied to ' + outputDir);
+}
 
-const dossier = buildDossier(repoRoot, { text_max_bytes: 163840 });
-const bytes = typeof dossier === 'string' ? dossier : Buffer.from(dossier);
-writeFileSync(join(outDir, 'dossier.json'), bytes);
-console.log(`wrote ${join(outDir, 'dossier.json')} (${bytes.length} bytes)`);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
